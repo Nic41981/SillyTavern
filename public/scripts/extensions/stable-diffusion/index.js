@@ -77,7 +77,6 @@ const sources = {
     drawthings: 'drawthings',
     pollinations: 'pollinations',
     stability: 'stability',
-    blockentropy: 'blockentropy',
     huggingface: 'huggingface',
     nanogpt: 'nanogpt',
     bfl: 'bfl',
@@ -1300,7 +1299,6 @@ async function onModelChange() {
         sources.togetherai,
         sources.pollinations,
         sources.stability,
-        sources.blockentropy,
         sources.huggingface,
         sources.nanogpt,
         sources.bfl,
@@ -1511,9 +1509,6 @@ async function loadSamplers() {
         case sources.stability:
             samplers = ['N/A'];
             break;
-        case sources.blockentropy:
-            samplers = ['N/A'];
-            break;
         case sources.huggingface:
             samplers = ['N/A'];
             break;
@@ -1701,9 +1696,6 @@ async function loadModels() {
         case sources.stability:
             models = await loadStabilityModels();
             break;
-        case sources.blockentropy:
-            models = await loadBlockEntropyModels();
-            break;
         case sources.huggingface:
             models = [{ value: '', text: '<Enter Model ID above>' }];
             break;
@@ -1794,26 +1786,6 @@ async function loadTogetherAIModels() {
 
     if (result.ok) {
         return await result.json();
-    }
-
-    return [];
-}
-
-async function loadBlockEntropyModels() {
-    if (!secret_state[SECRET_KEYS.BLOCKENTROPY]) {
-        console.debug('Block Entropy API key is not set.');
-        return [];
-    }
-
-    const result = await fetch('/api/sd/blockentropy/models', {
-        method: 'POST',
-        headers: getRequestHeaders(),
-    });
-    console.log(result);
-    if (result.ok) {
-        const data = await result.json();
-        console.log(data);
-        return data;
     }
 
     return [];
@@ -2097,9 +2069,6 @@ async function loadSchedulers() {
         case sources.stability:
             schedulers = ['N/A'];
             break;
-        case sources.blockentropy:
-            schedulers = ['N/A'];
-            break;
         case sources.huggingface:
             schedulers = ['N/A'];
             break;
@@ -2186,9 +2155,6 @@ async function loadVaes() {
             vaes = await loadComfyVaes();
             break;
         case sources.stability:
-            vaes = ['N/A'];
-            break;
-        case sources.blockentropy:
             vaes = ['N/A'];
             break;
         case sources.huggingface:
@@ -2337,10 +2303,10 @@ function processReply(str) {
     str = str.replaceAll('“', '');
     str = str.replaceAll('\n', ', ');
     str = str.normalize('NFD');
-    
+
     // Strip out non-alphanumeric characters barring model syntax exceptions
     str = str.replace(/[^a-zA-Z0-9.,:_(){}<>[\]\-'|#]+/g, ' ');
-    
+
     str = str.replace(/\s+/g, ' '); // Collapse multiple whitespaces into one
     str = str.trim();
 
@@ -2757,9 +2723,6 @@ async function sendGenerationRequest(generationType, prompt, additionalNegativeP
             case sources.stability:
                 result = await generateStabilityImage(prefixedPrompt, negativePrompt, signal);
                 break;
-            case sources.blockentropy:
-                result = await generateBlockEntropyImage(prefixedPrompt, negativePrompt, signal);
-                break;
             case sources.huggingface:
                 result = await generateHuggingFaceImage(prefixedPrompt, signal);
                 break;
@@ -2822,40 +2785,6 @@ async function generateTogetherAIImage(prompt, negativePrompt, signal) {
 
     if (result.ok) {
         return await result.json();
-    } else {
-        const text = await result.text();
-        throw new Error(text);
-    }
-}
-
-async function generateBlockEntropyImage(prompt, negativePrompt, signal) {
-    const result = await fetch('/api/sd/blockentropy/generate', {
-        method: 'POST',
-        headers: getRequestHeaders(),
-        signal: signal,
-        body: JSON.stringify({
-            prompt: prompt,
-            negative_prompt: negativePrompt,
-            model: extension_settings.sd.model,
-            steps: extension_settings.sd.steps,
-            width: extension_settings.sd.width,
-            height: extension_settings.sd.height,
-            seed: extension_settings.sd.seed >= 0 ? extension_settings.sd.seed : undefined,
-        }),
-    });
-
-    if (result.ok) {
-        const data = await result.json();
-
-        // Default format is 'jpg'
-        let format = 'jpg';
-
-        // Check if a format is specified in the result
-        if (data.format) {
-            format = data.format.toLowerCase();
-        }
-
-        return { format: format, data: data.images[0] };
     } else {
         const text = await result.text();
         throw new Error(text);
@@ -3234,7 +3163,7 @@ function getNovelParams() {
         extension_settings.sd.scheduler = 'karras';
     }
 
-    if (extension_settings.sd.sampler === 'ddim' || 
+    if (extension_settings.sd.sampler === 'ddim' ||
         ['nai-diffusion-4-curated-preview', 'nai-diffusion-4-full'].includes(extension_settings.sd.model)) {
         sm = false;
         sm_dyn = false;
@@ -3772,7 +3701,6 @@ async function addSDGenButtons() {
     $('#sd_wand_container').append(buttonHtml);
     $(document.body).append(dropdownHtml);
 
-    const messageButton = $('.sd_message_gen');
     const button = $('#sd_gen');
     const dropdown = $('#sd_dropdown');
     dropdown.hide();
@@ -3846,8 +3774,6 @@ function isValidState() {
             return true;
         case sources.stability:
             return secret_state[SECRET_KEYS.STABILITY];
-        case sources.blockentropy:
-            return secret_state[SECRET_KEYS.BLOCKENTROPY];
         case sources.huggingface:
             return secret_state[SECRET_KEYS.HUGGINGFACE];
         case sources.nanogpt:

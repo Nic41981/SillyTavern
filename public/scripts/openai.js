@@ -75,6 +75,7 @@ import { Popup, POPUP_RESULT } from './popup.js';
 import { t } from './i18n.js';
 import { ToolManager } from './tool-calling.js';
 import { accountStorage } from './util/AccountStorage.js';
+import { IGNORE_SYMBOL } from './constants.js';
 
 export {
     openai_messages_count,
@@ -119,7 +120,6 @@ const default_bias_presets = {
 const max_2k = 2047;
 const max_4k = 4095;
 const max_8k = 8191;
-const max_12k = 12287;
 const max_16k = 16383;
 const max_32k = 32767;
 const max_64k = 65535;
@@ -182,7 +182,6 @@ export const chat_completion_sources = {
     PERPLEXITY: 'perplexity',
     GROQ: 'groq',
     ZEROONEAI: '01ai',
-    BLOCKENTROPY: 'blockentropy',
     NANOGPT: 'nanogpt',
     DEEPSEEK: 'deepseek',
 };
@@ -258,7 +257,6 @@ export const settingsToUpdate = {
     nanogpt_model: ['#model_nanogpt_select', 'nanogpt_model', false],
     deepseek_model: ['#model_deepseek_select', 'deepseek_model', false],
     zerooneai_model: ['#model_01ai_select', 'zerooneai_model', false],
-    blockentropy_model: ['#model_blockentropy_select', 'blockentropy_model', false],
     custom_model: ['#custom_model_id', 'custom_model', false],
     custom_url: ['#custom_api_url_text', 'custom_url', false],
     custom_include_body: ['#custom_include_body', 'custom_include_body', false],
@@ -346,7 +344,6 @@ const default_settings = {
     groq_model: 'llama-3.3-70b-versatile',
     nanogpt_model: 'gpt-4o-mini',
     zerooneai_model: 'yi-large',
-    blockentropy_model: 'be-70b-base-llama3.1',
     deepseek_model: 'deepseek-chat',
     custom_model: '',
     custom_url: '',
@@ -427,7 +424,6 @@ const oai_settings = {
     groq_model: 'llama-3.1-70b-versatile',
     nanogpt_model: 'gpt-4o-mini',
     zerooneai_model: 'yi-large',
-    blockentropy_model: 'be-70b-base-llama3.1',
     deepseek_model: 'deepseek-chat',
     custom_model: '',
     custom_url: '',
@@ -526,6 +522,13 @@ function setOpenAIMessages(chat) {
     for (let i = chat.length - 1; i >= 0; i--) {
         let role = chat[j]['is_user'] ? 'user' : 'assistant';
         let content = chat[j]['mes'];
+
+        // If this symbol flag is set, completely ignore the message.
+        // This can be used to hide messages without affecting the number of messages in the chat.
+        if (chat[j].extra?.[IGNORE_SYMBOL]) {
+            j++;
+            continue;
+        }
 
         // 100% legal way to send a message as system
         if (chat[j].extra?.type === system_message_types.NARRATOR) {
@@ -705,16 +708,18 @@ export function parseExampleIntoIndividual(messageExampleString, appendNamesForG
     return result;
 }
 
-function formatWorldInfo(value) {
+export function formatWorldInfo(value, { wiFormat = null } = {}) {
     if (!value) {
         return '';
     }
 
-    if (!oai_settings.wi_format.trim()) {
+    const format = wiFormat ?? oai_settings.wi_format;
+
+    if (!format.trim()) {
         return value;
     }
 
-    return stringFormat(oai_settings.wi_format, value);
+    return stringFormat(format, value);
 }
 
 /**
@@ -952,7 +957,7 @@ async function populateDialogueExamples(prompts, chatCompletion, messageExamples
  * @param {number} position - Prompt position in the extensions object.
  * @returns {string|false} - The prompt position for prompt collection.
  */
-function getPromptPosition(position) {
+export function getPromptPosition(position) {
     if (position == extension_prompt_types.BEFORE_PROMPT) {
         return 'start';
     }
@@ -969,7 +974,7 @@ function getPromptPosition(position) {
  * @param {number} role Role of the prompt.
  * @returns {string} Mapped role.
  */
-function getPromptRole(role) {
+export function getPromptRole(role) {
     switch (role) {
         case extension_prompt_roles.SYSTEM:
             return 'system';
@@ -1442,8 +1447,10 @@ export async function prepareOpenAIMessages({
  * Handles errors during streaming requests.
  * @param {Response} response
  * @param {string} decoded - response text or decoded stream data
+ * @param {object} [options]
+ * @param {boolean?} [options.quiet=false] Suppress toast messages
  */
-function tryParseStreamingError(response, decoded) {
+export function tryParseStreamingError(response, decoded, { quiet = false } = {}) {
     try {
         const data = JSON.parse(decoded);
 
@@ -1451,19 +1458,19 @@ function tryParseStreamingError(response, decoded) {
             return;
         }
 
-        checkQuotaError(data);
-        checkModerationError(data);
+        checkQuotaError(data, { quiet });
+        checkModerationError(data, { quiet });
 
         // these do not throw correctly (equiv to Error("[object Object]"))
         // if trying to fix "[object Object]" displayed to users, start here
 
         if (data.error) {
-            toastr.error(data.error.message || response.statusText, 'Chat Completion API');
+            !quiet && toastr.error(data.error.message || response.statusText, 'Chat Completion API');
             throw new Error(data);
         }
 
         if (data.message) {
-            toastr.error(data.message, 'Chat Completion API');
+            !quiet && toastr.error(data.message, 'Chat Completion API');
             throw new Error(data);
         }
     }
@@ -1475,16 +1482,18 @@ function tryParseStreamingError(response, decoded) {
 /**
  * Checks if the response contains a quota error and displays a popup if it does.
  * @param data
+ * @param {object} [options]
+ * @param {boolean?} [options.quiet=false] Suppress toast messages
  * @returns {void}
  * @throws {object} - response JSON
  */
-function checkQuotaError(data) {
+function checkQuotaError(data, { quiet = false } = {}) {
     if (!data) {
         return;
     }
 
     if (data.quota_error) {
-        renderTemplateAsync('quotaError').then((html) => Popup.show.text('Quota Error', html));
+        !quiet && renderTemplateAsync('quotaError').then((html) => Popup.show.text('Quota Error', html));
 
         // this does not throw correctly (equiv to Error("[object Object]"))
         // if trying to fix "[object Object]" displayed to users, start here
@@ -1492,9 +1501,14 @@ function checkQuotaError(data) {
     }
 }
 
-function checkModerationError(data) {
+/**
+ * @param {any} data
+ * @param {object} [options]
+ * @param {boolean?} [options.quiet=false] Suppress toast messages
+ */
+function checkModerationError(data, { quiet = false } = {}) {
     const moderationError = data?.error?.message?.includes('requires moderation');
-    if (moderationError) {
+    if (moderationError && !quiet) {
         const moderationReason = `Reasons: ${data?.error?.metadata?.reasons?.join(', ') ?? '(N/A)'}`;
         const flaggedText = data?.error?.metadata?.flagged_input ?? '(N/A)';
         toastr.info(flaggedText, moderationReason, { timeOut: 10000 });
@@ -1626,8 +1640,6 @@ export function getChatCompletionModel(source = null) {
             return oai_settings.groq_model;
         case chat_completion_sources.ZEROONEAI:
             return oai_settings.zerooneai_model;
-        case chat_completion_sources.BLOCKENTROPY:
-            return oai_settings.blockentropy_model;
         case chat_completion_sources.NANOGPT:
             return oai_settings.nanogpt_model;
         case chat_completion_sources.DEEPSEEK:
@@ -1744,23 +1756,6 @@ function saveModelList(data) {
         }
 
         $('#model_01ai_select').val(oai_settings.zerooneai_model).trigger('change');
-    }
-
-    if (oai_settings.chat_completion_source == chat_completion_sources.BLOCKENTROPY) {
-        $('#model_blockentropy_select').empty();
-        model_list.forEach((model) => {
-            $('#model_blockentropy_select').append(
-                $('<option>', {
-                    value: model.id,
-                    text: model.id,
-                }));
-        });
-
-        if (!oai_settings.blockentropy_model && model_list.length > 0) {
-            oai_settings.blockentropy_model = model_list[0].id;
-        }
-
-        $('#model_blockentropy_select').val(oai_settings.blockentropy_model).trigger('change');
     }
 
     if (oai_settings.chat_completion_source == chat_completion_sources.MISTRALAI) {
@@ -2018,6 +2013,7 @@ async function sendOpenAIRequest(type, messages, signal) {
         'reasoning_effort': String(oai_settings.reasoning_effort),
         'enable_web_search': Boolean(oai_settings.enable_web_search),
         'request_images': Boolean(oai_settings.request_images),
+        'custom_prompt_post_processing': oai_settings.custom_prompt_post_processing,
     };
 
     if (!canMultiSwipe && ToolManager.canPerformToolCalls(type)) {
@@ -2048,7 +2044,7 @@ async function sendOpenAIRequest(type, messages, signal) {
         delete generate_data.stop;
         delete generate_data.logprobs;
     }
-    if (isOAI && oai_settings.openai_model.includes('gpt-4.5-preview') || isOpenRouter && oai_settings.openrouter_model.includes('gpt-4.5-preview')) {
+    if (isOAI && oai_settings.openai_model.includes('gpt-4.5') || isOpenRouter && oai_settings.openrouter_model.includes('gpt-4.5')) {
         delete generate_data.logprobs;
     }
 
@@ -2098,7 +2094,6 @@ async function sendOpenAIRequest(type, messages, signal) {
         generate_data['custom_include_body'] = oai_settings.custom_include_body;
         generate_data['custom_exclude_body'] = oai_settings.custom_exclude_body;
         generate_data['custom_include_headers'] = oai_settings.custom_include_headers;
-        generate_data['custom_prompt_post_processing'] = oai_settings.custom_prompt_post_processing;
     }
 
     if (isCohere) {
@@ -2253,37 +2248,43 @@ async function sendOpenAIRequest(type, messages, signal) {
  * Extracts the reply from the response data from a chat completions-like source
  * @param {object} data Response data from the chat completions-like source
  * @param {object} state Additional state to keep track of
+ * @param {object} [options] Additional options
+ * @param {string?} [options.chatCompletionSource] Chat completion source
+ * @param {boolean?} [options.overrideShowThoughts] Override show thoughts
  * @returns {string} The reply extracted from the response data
  */
-function getStreamingReply(data, state) {
-    if (oai_settings.chat_completion_source === chat_completion_sources.CLAUDE) {
-        if (oai_settings.show_thoughts) {
+export function getStreamingReply(data, state, { chatCompletionSource = null, overrideShowThoughts = null } = {}) {
+    const chat_completion_source = chatCompletionSource ?? oai_settings.chat_completion_source;
+    const show_thoughts = overrideShowThoughts ?? oai_settings.show_thoughts;
+
+    if (chat_completion_source === chat_completion_sources.CLAUDE) {
+        if (show_thoughts) {
             state.reasoning += data?.delta?.thinking || '';
         }
         return data?.delta?.text || '';
-    } else if (oai_settings.chat_completion_source === chat_completion_sources.MAKERSUITE) {
+    } else if (chat_completion_source === chat_completion_sources.MAKERSUITE) {
         const inlineData = data?.candidates?.[0]?.content?.parts?.find(x => x.inlineData)?.inlineData;
         if (inlineData) {
             state.image = `data:${inlineData.mimeType};base64,${inlineData.data}`;
         }
-        if (oai_settings.show_thoughts) {
+        if (show_thoughts) {
             state.reasoning += (data?.candidates?.[0]?.content?.parts?.filter(x => x.thought)?.map(x => x.text)?.[0] || '');
         }
         return data?.candidates?.[0]?.content?.parts?.filter(x => !x.thought)?.map(x => x.text)?.[0] || '';
-    } else if (oai_settings.chat_completion_source === chat_completion_sources.COHERE) {
+    } else if (chat_completion_source === chat_completion_sources.COHERE) {
         return data?.delta?.message?.content?.text || data?.delta?.message?.tool_plan || '';
-    } else if (oai_settings.chat_completion_source === chat_completion_sources.DEEPSEEK) {
-        if (oai_settings.show_thoughts) {
+    } else if (chat_completion_source === chat_completion_sources.DEEPSEEK) {
+        if (show_thoughts) {
             state.reasoning += (data.choices?.filter(x => x?.delta?.reasoning_content)?.[0]?.delta?.reasoning_content || '');
         }
         return data.choices?.[0]?.delta?.content || '';
-    } else if (oai_settings.chat_completion_source === chat_completion_sources.OPENROUTER) {
-        if (oai_settings.show_thoughts) {
+    } else if (chat_completion_source === chat_completion_sources.OPENROUTER) {
+        if (show_thoughts) {
             state.reasoning += (data.choices?.filter(x => x?.delta?.reasoning)?.[0]?.delta?.reasoning || '');
         }
         return data.choices?.[0]?.delta?.content ?? data.choices?.[0]?.message?.content ?? data.choices?.[0]?.text ?? '';
-    } else if (oai_settings.chat_completion_source === chat_completion_sources.CUSTOM) {
-        if (oai_settings.show_thoughts) {
+    } else if (chat_completion_source === chat_completion_sources.CUSTOM) {
+        if (show_thoughts) {
             state.reasoning +=
                 data.choices?.filter(x => x?.delta?.reasoning_content)?.[0]?.delta?.reasoning_content ??
                 data.choices?.filter(x => x?.delta?.reasoning)?.[0]?.delta?.reasoning ??
@@ -3229,7 +3230,6 @@ function loadOpenAISettings(data, settings) {
     oai_settings.groq_model = settings.groq_model ?? default_settings.groq_model;
     oai_settings.nanogpt_model = settings.nanogpt_model ?? default_settings.nanogpt_model;
     oai_settings.deepseek_model = settings.deepseek_model ?? default_settings.deepseek_model;
-    oai_settings.blockentropy_model = settings.blockentropy_model ?? default_settings.blockentropy_model;
     oai_settings.zerooneai_model = settings.zerooneai_model ?? default_settings.zerooneai_model;
     oai_settings.custom_model = settings.custom_model ?? default_settings.custom_model;
     oai_settings.custom_url = settings.custom_url ?? default_settings.custom_url;
@@ -3316,7 +3316,6 @@ function loadOpenAISettings(data, settings) {
     $('#model_deepseek_select').val(oai_settings.deepseek_model);
     $(`#model_deepseek_select option[value="${oai_settings.deepseek_model}"`).prop('selected', true);
     $('#model_01ai_select').val(oai_settings.zerooneai_model);
-    $('#model_blockentropy_select').val(oai_settings.blockentropy_model);
     $('#custom_model_id').val(oai_settings.custom_model);
     $('#custom_api_url_text').val(oai_settings.custom_url);
     $('#openai_max_context').val(oai_settings.openai_max_context);
@@ -3476,7 +3475,7 @@ async function getStatusOpen() {
         let status;
 
         if ('ai' in window) {
-            status = 'Valid';
+            status = t`Valid`;
         }
         else {
             showWindowExtensionError();
@@ -3525,7 +3524,7 @@ async function getStatusOpen() {
 
     const canBypass = (oai_settings.chat_completion_source === chat_completion_sources.OPENAI && oai_settings.bypass_status_check) || oai_settings.chat_completion_source === chat_completion_sources.CUSTOM;
     if (canBypass) {
-        setOnlineStatus('Status check bypassed');
+        setOnlineStatus(t`Status check bypassed`);
     }
 
     try {
@@ -3547,7 +3546,7 @@ async function getStatusOpen() {
             saveModelList(responseData.data);
         }
         if (!('error' in responseData)) {
-            setOnlineStatus('Valid');
+            setOnlineStatus(t`Valid`);
         }
     } catch (error) {
         console.error(error);
@@ -3596,7 +3595,6 @@ async function saveOpenAIPreset(name, settings, triggerUi = true) {
         perplexity_model: settings.perplexity_model,
         groq_model: settings.groq_model,
         zerooneai_model: settings.zerooneai_model,
-        blockentropy_model: settings.blockentropy_model,
         custom_model: settings.custom_model,
         custom_url: settings.custom_url,
         custom_include_body: settings.custom_include_body,
@@ -4195,6 +4193,9 @@ function getGroqMaxContext(model, isUnlocked) {
         'qwen-2.5-32b': max_128k,
         'deepseek-r1-distill-qwen-32b': max_128k,
         'deepseek-r1-distill-llama-70b-specdec': max_128k,
+        'mistral-saba-24b': max_32k,
+        'meta-llama/llama-4-scout-17b-16e-instruct': max_128k,
+        'meta-llama/llama-4-maverick-17b-128e-instruct': max_128k,
     };
 
     // Return context size if model found, otherwise default to 128k
@@ -4305,12 +4306,6 @@ async function onModelChange() {
         oai_settings.zerooneai_model = value;
     }
 
-    if (value && $(this).is('#model_blockentropy_select')) {
-        console.log('Block Entropy model changed to', value);
-        oai_settings.blockentropy_model = value;
-        $('#blockentropy_model_id').val(value).trigger('input');
-    }
-
     if (value && $(this).is('#model_custom_select')) {
         console.log('Custom model changed to', value);
         oai_settings.custom_model = value;
@@ -4335,7 +4330,7 @@ async function onModelChange() {
             $('#openai_max_context').attr('max', max_32k);
         } else if (value.includes('gemini-1.5-pro') || value.includes('gemini-exp-1206') || value.includes('gemini-2.0-pro')) {
             $('#openai_max_context').attr('max', max_2mil);
-        } else if (value.includes('gemini-1.5-flash') || value.includes('gemini-2.0-flash')) {
+        } else if (value.includes('gemini-1.5-flash') || value.includes('gemini-2.0-flash') || value.includes('gemini-2.5-pro-exp-03-25') || value.includes('gemini-2.5-pro-preview-03-25')) {
             $('#openai_max_context').attr('max', max_1mil);
         } else if (value.includes('gemini-1.0-pro') || value === 'gemini-pro') {
             $('#openai_max_context').attr('max', max_32k);
@@ -4435,9 +4430,9 @@ async function onModelChange() {
     if (oai_settings.chat_completion_source === chat_completion_sources.MISTRALAI) {
         if (oai_settings.max_context_unlocked) {
             $('#openai_max_context').attr('max', unlocked_max);
-        } else if (oai_settings.mistralai_model.includes('codestral-mamba')) {
+        } else if (['codestral-latest', 'codestral-mamba-2407', 'codestral-2411-rc5', 'codestral-2412', 'codestral-2501'].includes(oai_settings.mistralai_model)) {
             $('#openai_max_context').attr('max', max_256k);
-        } else if (['mistral-large-2407', 'mistral-large-2411', 'mistral-large-latest'].includes(oai_settings.mistralai_model)) {
+        } else if (['mistral-large-2407', 'mistral-large-2411', 'mistral-large-pixtral-2411', 'mistral-large-latest'].includes(oai_settings.mistralai_model)) {
             $('#openai_max_context').attr('max', max_128k);
         } else if (oai_settings.mistralai_model.includes('mistral-nemo')) {
             $('#openai_max_context').attr('max', max_128k);
@@ -4552,29 +4547,6 @@ async function onModelChange() {
         }
         else {
             $('#openai_max_context').attr('max', max_16k);
-        }
-
-        oai_settings.openai_max_context = Math.min(oai_settings.openai_max_context, Number($('#openai_max_context').attr('max')));
-        $('#openai_max_context').val(oai_settings.openai_max_context).trigger('input');
-
-        oai_settings.temp_openai = Math.min(oai_max_temp, oai_settings.temp_openai);
-        $('#temp_openai').attr('max', oai_max_temp).val(oai_settings.temp_openai).trigger('input');
-    }
-    if (oai_settings.chat_completion_source === chat_completion_sources.BLOCKENTROPY) {
-        if (oai_settings.max_context_unlocked) {
-            $('#openai_max_context').attr('max', unlocked_max);
-        }
-        else if (oai_settings.blockentropy_model.includes('llama3.1')) {
-            $('#openai_max_context').attr('max', max_16k);
-        }
-        else if (oai_settings.blockentropy_model.includes('72b')) {
-            $('#openai_max_context').attr('max', max_16k);
-        }
-        else if (oai_settings.blockentropy_model.includes('120b')) {
-            $('#openai_max_context').attr('max', max_12k);
-        }
-        else {
-            $('#openai_max_context').attr('max', max_8k);
         }
 
         oai_settings.openai_max_context = Math.min(oai_settings.openai_max_context, Number($('#openai_max_context').attr('max')));
@@ -4849,18 +4821,6 @@ async function onConnectButtonClick(e) {
             return;
         }
     }
-    if (oai_settings.chat_completion_source == chat_completion_sources.BLOCKENTROPY) {
-        const api_key_blockentropy = String($('#api_key_blockentropy').val()).trim();
-
-        if (api_key_blockentropy.length) {
-            await writeSecret(SECRET_KEYS.BLOCKENTROPY, api_key_blockentropy);
-        }
-
-        if (!secret_state[SECRET_KEYS.BLOCKENTROPY]) {
-            console.log('No secret key saved for Block Entropy');
-            return;
-        }
-    }
 
     startStatusLoading();
     saveSettingsDebounced();
@@ -4914,9 +4874,6 @@ function toggleChatCompletionForms() {
     }
     else if (oai_settings.chat_completion_source == chat_completion_sources.CUSTOM) {
         $('#model_custom_select').trigger('change');
-    }
-    else if (oai_settings.chat_completion_source == chat_completion_sources.BLOCKENTROPY) {
-        $('#model_blockentropy_select').trigger('change');
     }
     else if (oai_settings.chat_completion_source == chat_completion_sources.DEEPSEEK) {
         $('#model_deepseek_select').trigger('change');
@@ -5006,6 +4963,8 @@ export function isImageInliningSupported() {
     // gultra just isn't being offered as multimodal, thanks google.
     const visionSupportedModels = [
         'gpt-4-vision',
+        'gemini-2.5-pro-exp-03-25',
+        'gemini-2.5-pro-preview-03-25',
         'gemini-2.0-pro-exp',
         'gemini-2.0-pro-exp-02-05',
         'gemini-2.0-flash-lite-preview',
@@ -5669,7 +5628,6 @@ export function initOpenAI() {
     $('#model_nanogpt_select').on('change', onModelChange);
     $('#model_deepseek_select').on('change', onModelChange);
     $('#model_01ai_select').on('change', onModelChange);
-    $('#model_blockentropy_select').on('change', onModelChange);
     $('#model_custom_select').on('change', onModelChange);
     $('#settings_preset_openai').on('change', onSettingsPresetChange);
     $('#new_oai_preset').on('click', onNewPresetClick);

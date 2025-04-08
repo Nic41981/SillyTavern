@@ -49,8 +49,7 @@ const API_COHERE_V2 = 'https://api.cohere.ai/v2';
 const API_PERPLEXITY = 'https://api.perplexity.ai';
 const API_GROQ = 'https://api.groq.com/openai/v1';
 const API_MAKERSUITE = 'https://generativelanguage.googleapis.com';
-const API_01AI = 'https://api.01.ai/v1';
-const API_BLOCKENTROPY = 'https://api.blockentropy.ai/v1';
+const API_01AI = 'https://api.lingyiwanwu.com/v1';
 const API_AI21 = 'https://api.ai21.com/studio/v1';
 const API_NANOGPT = 'https://nano-gpt.com/api/v1';
 const API_DEEPSEEK = 'https://api.deepseek.com/beta';
@@ -364,6 +363,7 @@ async function sendMakerSuiteRequest(request, response) {
         }
 
         const useSystemPrompt = !useMultiModal && (
+            model.includes('gemini-2.5-pro') ||
             model.includes('gemini-2.0-pro') ||
             model.includes('gemini-2.0-flash') ||
             model.includes('gemini-2.0-flash-thinking-exp') ||
@@ -399,6 +399,9 @@ async function sendMakerSuiteRequest(request, response) {
                 if (tool.type === 'function') {
                     if (tool.function.parameters?.$schema) {
                         delete tool.function.parameters.$schema;
+                    }
+                    if (tool.function.parameters?.properties && Object.keys(tool.function.parameters.properties).length === 0) {
+                        delete tool.function.parameters;
                     }
                     functionDeclarations.push(tool.function);
                 }
@@ -861,10 +864,6 @@ router.post('/status', async function (request, response_getstatus_openai) {
         api_url = API_01AI;
         api_key_openai = readSecret(request.user.directories, SECRET_KEYS.ZEROONEAI);
         headers = {};
-    } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.BLOCKENTROPY) {
-        api_url = API_BLOCKENTROPY;
-        api_key_openai = readSecret(request.user.directories, SECRET_KEYS.BLOCKENTROPY);
-        headers = {};
     } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.NANOGPT) {
         api_url = API_NANOGPT;
         api_key_openai = readSecret(request.user.directories, SECRET_KEYS.NANOGPT);
@@ -1048,6 +1047,15 @@ router.post('/generate', function (request, response) {
     let bodyParams;
     const isTextCompletion = Boolean(request.body.model && TEXT_COMPLETION_MODELS.includes(request.body.model)) || typeof request.body.messages === 'string';
 
+    const postProcessTypes = [CHAT_COMPLETION_SOURCES.CUSTOM, CHAT_COMPLETION_SOURCES.OPENROUTER];
+    if (Array.isArray(request.body.messages) && postProcessTypes.includes(request.body.chat_completion_source) && request.body.custom_prompt_post_processing) {
+        console.info('Applying custom prompt post-processing of type', request.body.custom_prompt_post_processing);
+        request.body.messages = postProcessPrompt(
+            request.body.messages,
+            request.body.custom_prompt_post_processing,
+            getPromptNames(request));
+    }
+
     if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.OPENAI) {
         apiUrl = new URL(request.body.reverse_proxy || API_OPENAI).toString();
         apiKey = request.body.reverse_proxy ? request.body.proxy_password : readSecret(request.user.directories, SECRET_KEYS.OPENAI);
@@ -1121,14 +1129,6 @@ router.post('/generate', function (request, response) {
 
         mergeObjectWithYaml(bodyParams, request.body.custom_include_body);
         mergeObjectWithYaml(headers, request.body.custom_include_headers);
-
-        if (request.body.custom_prompt_post_processing) {
-            console.info('Applying custom prompt post-processing of type', request.body.custom_prompt_post_processing);
-            request.body.messages = postProcessPrompt(
-                request.body.messages,
-                request.body.custom_prompt_post_processing,
-                getPromptNames(request));
-        }
     } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.PERPLEXITY) {
         apiUrl = API_PERPLEXITY;
         apiKey = readSecret(request.user.directories, SECRET_KEYS.PERPLEXITY);
@@ -1148,11 +1148,6 @@ router.post('/generate', function (request, response) {
     } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.ZEROONEAI) {
         apiUrl = API_01AI;
         apiKey = readSecret(request.user.directories, SECRET_KEYS.ZEROONEAI);
-        headers = {};
-        bodyParams = {};
-    } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.BLOCKENTROPY) {
-        apiUrl = API_BLOCKENTROPY;
-        apiKey = readSecret(request.user.directories, SECRET_KEYS.BLOCKENTROPY);
         headers = {};
         bodyParams = {};
     } else {
