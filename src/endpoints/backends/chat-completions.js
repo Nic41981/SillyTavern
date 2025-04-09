@@ -30,7 +30,7 @@ import {
     calculateBudgetTokens,
 } from '../../prompt-converters.js';
 
-import { readSecret, SECRET_KEYS } from '../secrets.js';
+import {readSecret, SECRET_KEYS} from '../secrets.js';
 import {
     getTokenizerModel,
     getSentencepiceTokenizer,
@@ -105,7 +105,7 @@ function getOpenRouterPlugins(request) {
     const plugins = [];
 
     if (request.body.enable_web_search) {
-        plugins.push({ 'id': 'web' });
+        plugins.push({'id': 'web'});
     }
 
     return plugins;
@@ -129,7 +129,7 @@ async function sendClaudeRequest(request, response) {
 
     if (!apiKey) {
         console.warn(color.red(`Claude API key is missing.\n${divider}`));
-        return response.status(400).send({ error: true });
+        return response.status(400).send({error: true});
     }
 
     try {
@@ -164,7 +164,7 @@ async function sendClaudeRequest(request, response) {
         };
         if (useSystemPrompt) {
             if (enableSystemPromptCache && Array.isArray(convertedPrompt.systemPrompt) && convertedPrompt.systemPrompt.length) {
-                convertedPrompt.systemPrompt[convertedPrompt.systemPrompt.length - 1]['cache_control'] = { type: 'ephemeral' };
+                convertedPrompt.systemPrompt[convertedPrompt.systemPrompt.length - 1]['cache_control'] = {type: 'ephemeral'};
             }
 
             requestBody.system = convertedPrompt.systemPrompt;
@@ -173,18 +173,18 @@ async function sendClaudeRequest(request, response) {
         }
         if (useTools) {
             betaHeaders.push('tools-2024-05-16');
-            requestBody.tool_choice = { type: request.body.tool_choice };
+            requestBody.tool_choice = {type: request.body.tool_choice};
             requestBody.tools = request.body.tools
                 .filter(tool => tool.type === 'function')
                 .map(tool => tool.function)
-                .map(fn => ({ name: fn.name, description: fn.description, input_schema: fn.parameters }));
+                .map(fn => ({name: fn.name, description: fn.description, input_schema: fn.parameters}));
 
             if (requestBody.tools.length) {
                 // No prefill when using tools
                 voidPrefill = true;
             }
             if (enableSystemPromptCache && requestBody.tools.length) {
-                requestBody.tools[requestBody.tools.length - 1]['cache_control'] = { type: 'ephemeral' };
+                requestBody.tools[requestBody.tools.length - 1]['cache_control'] = {type: 'ephemeral'};
             }
         }
 
@@ -220,7 +220,7 @@ async function sendClaudeRequest(request, response) {
         }
 
         if (voidPrefill && convertedPrompt.messages.length && convertedPrompt.messages[convertedPrompt.messages.length - 1].role === 'assistant') {
-            convertedPrompt.messages.push({ role: 'user', content: [{ type: 'text', text: '\u200b' }] });
+            convertedPrompt.messages.push({role: 'user', content: [{type: 'text', text: '\u200b'}]});
         }
 
         if (betaHeaders.length) {
@@ -248,7 +248,7 @@ async function sendClaudeRequest(request, response) {
             if (!generateResponse.ok) {
                 const generateResponseText = await generateResponse.text();
                 console.warn(color.red(`Claude API returned error: ${generateResponse.status} ${generateResponse.statusText}\n${generateResponseText}\n${divider}`));
-                return response.status(generateResponse.status).send({ error: true });
+                return response.status(generateResponse.status).send({error: true});
             }
 
             /** @type {any} */
@@ -257,13 +257,13 @@ async function sendClaudeRequest(request, response) {
             console.debug('Claude response:', generateResponseJson);
 
             // Wrap it back to OAI format + save the original content
-            const reply = { choices: [{ 'message': { 'content': responseText } }], content: generateResponseJson.content };
+            const reply = {choices: [{'message': {'content': responseText}}], content: generateResponseJson.content};
             return response.send(reply);
         }
     } catch (error) {
         console.error(color.red(`Error communicating with Claude: ${error}\n${divider}`));
         if (!response.headersSent) {
-            return response.status(500).send({ error: true });
+            return response.status(500).send({error: true});
         }
     }
 }
@@ -279,7 +279,7 @@ async function sendScaleRequest(request, response) {
 
     if (!apiKey) {
         console.warn('Scale API key is missing.');
-        return response.status(400).send({ error: true });
+        return response.status(400).send({error: true});
     }
 
     const requestPrompt = convertTextCompletionPrompt(request.body.messages);
@@ -294,7 +294,7 @@ async function sendScaleRequest(request, response) {
 
         const generateResponse = await fetch(apiUrl, {
             method: 'POST',
-            body: JSON.stringify({ input: { input: requestPrompt } }),
+            body: JSON.stringify({input: {input: requestPrompt}}),
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Basic ${apiKey}`,
@@ -303,19 +303,19 @@ async function sendScaleRequest(request, response) {
 
         if (!generateResponse.ok) {
             console.warn(`Scale API returned error: ${generateResponse.status} ${generateResponse.statusText} ${await generateResponse.text()}`);
-            return response.status(500).send({ error: true });
+            return response.status(500).send({error: true});
         }
 
         /** @type {any} */
         const generateResponseJson = await generateResponse.json();
         console.debug('Scale response:', generateResponseJson);
 
-        const reply = { choices: [{ 'message': { 'content': generateResponseJson.output } }] };
+        const reply = {choices: [{'message': {'content': generateResponseJson.output}}]};
         return response.send(reply);
     } catch (error) {
         console.error(error);
         if (!response.headersSent) {
-            return response.status(500).send({ error: true });
+            return response.status(500).send({error: true});
         }
     }
 }
@@ -331,7 +331,7 @@ async function sendMakerSuiteRequest(request, response) {
 
     if (!request.body.reverse_proxy && !apiKey) {
         console.warn('Google AI Studio API key is missing.');
-        return response.status(400).send({ error: true });
+        return response.status(400).send({error: true});
     }
 
     const model = String(request.body.model);
@@ -378,18 +378,18 @@ async function sendMakerSuiteRequest(request, response) {
 
         // These models do not support setting the threshold to OFF at all.
         if (['gemini-1.5-pro-001', 'gemini-1.5-flash-001', 'gemini-1.5-flash-8b-exp-0827', 'gemini-1.5-flash-8b-exp-0924', 'gemini-pro', 'gemini-1.0-pro', 'gemini-1.0-pro-001', 'gemma-3-27b-it'].includes(model)) {
-            safetySettings = GEMINI_SAFETY.map(setting => ({ ...setting, threshold: 'BLOCK_NONE' }));
+            safetySettings = GEMINI_SAFETY.map(setting => ({...setting, threshold: 'BLOCK_NONE'}));
         }
         // Interestingly, Gemini 2.0 Flash does support setting the threshold for HARM_CATEGORY_CIVIC_INTEGRITY to OFF.
         else if (['gemini-2.0-flash', 'gemini-2.0-flash-001', 'gemini-2.0-flash-exp', 'gemini-2.0-flash-exp-image-generation'].includes(model)) {
-            safetySettings = GEMINI_SAFETY.map(setting => ({ ...setting, threshold: 'OFF' }));
+            safetySettings = GEMINI_SAFETY.map(setting => ({...setting, threshold: 'OFF'}));
         }
         // Most of the other models allow for setting the threshold of filters, except for HARM_CATEGORY_CIVIC_INTEGRITY, to OFF.
 
         if (enableWebSearch && !useMultiModal && !isGemma) {
             const searchTool = model.includes('1.5') || model.includes('1.0')
-                ? ({ google_search_retrieval: {} })
-                : ({ google_search: {} });
+                ? ({google_search_retrieval: {}})
+                : ({google_search: {}});
             tools.push(searchTool);
         }
 
@@ -406,7 +406,7 @@ async function sendMakerSuiteRequest(request, response) {
                     functionDeclarations.push(tool.function);
                 }
             }
-            tools.push({ function_declarations: functionDeclarations });
+            tools.push({function_declarations: functionDeclarations});
         }
 
         let body = {
@@ -455,13 +455,13 @@ async function sendMakerSuiteRequest(request, response) {
             } catch (error) {
                 console.error('Error forwarding streaming response:', error);
                 if (!response.headersSent) {
-                    return response.status(500).send({ error: true });
+                    return response.status(500).send({error: true});
                 }
             }
         } else {
             if (!generateResponse.ok) {
                 console.warn(`Google AI Studio API returned error: ${generateResponse.status} ${generateResponse.statusText} ${await generateResponse.text()}`);
-                return response.status(generateResponse.status).send({ error: true });
+                return response.status(generateResponse.status).send({error: true});
             }
 
             /** @type {any} */
@@ -474,7 +474,7 @@ async function sendMakerSuiteRequest(request, response) {
                 if (generateResponseJson?.promptFeedback?.blockReason) {
                     message += `\nPrompt was blocked due to : ${generateResponseJson.promptFeedback.blockReason}`;
                 }
-                return response.send({ error: { message } });
+                return response.send({error: {message}});
             }
 
             const responseContent = candidates[0].content ?? candidates[0].output;
@@ -486,17 +486,17 @@ async function sendMakerSuiteRequest(request, response) {
             if (!responseText && !functionCall && !inlineData) {
                 let message = 'Google AI Studio Candidate text empty';
                 console.warn(message, generateResponseJson);
-                return response.send({ error: { message } });
+                return response.send({error: {message}});
             }
 
             // Wrap it back to OAI format
-            const reply = { choices: [{ 'message': { 'content': responseText } }], responseContent };
+            const reply = {choices: [{'message': {'content': responseText}}], responseContent};
             return response.send(reply);
         }
     } catch (error) {
         console.error('Error communicating with Google AI Studio API: ', error);
         if (!response.headersSent) {
-            return response.status(500).send({ error: true });
+            return response.status(500).send({error: true});
         }
     }
 }
@@ -512,7 +512,7 @@ async function sendAI21Request(request, response) {
     const apiKey = readSecret(request.user.directories, SECRET_KEYS.AI21);
     if (!apiKey) {
         console.warn('AI21 API key is missing.');
-        return response.status(400).send({ error: true });
+        return response.status(400).send({error: true});
     }
 
     const controller = new AbortController();
@@ -553,7 +553,7 @@ async function sendAI21Request(request, response) {
             if (!generateResponse.ok) {
                 const errorText = await generateResponse.text();
                 console.warn(`AI21 API returned error: ${generateResponse.status} ${generateResponse.statusText} ${errorText}`);
-                const errorJson = tryParse(errorText) ?? { error: true };
+                const errorJson = tryParse(errorText) ?? {error: true};
                 return response.status(500).send(errorJson);
             }
             const generateResponseJson = await generateResponse.json();
@@ -563,7 +563,7 @@ async function sendAI21Request(request, response) {
     } catch (error) {
         console.error('Error communicating with AI21 API: ', error);
         if (!response.headersSent) {
-            response.send({ error: true });
+            response.send({error: true});
         } else {
             response.end();
         }
@@ -581,7 +581,7 @@ async function sendMistralAIRequest(request, response) {
 
     if (!apiKey) {
         console.warn('MistralAI API key is missing.');
-        return response.status(400).send({ error: true });
+        return response.status(400).send({error: true});
     }
 
     try {
@@ -631,7 +631,7 @@ async function sendMistralAIRequest(request, response) {
             if (!generateResponse.ok) {
                 const errorText = await generateResponse.text();
                 console.warn(`MistralAI API returned error: ${generateResponse.status} ${generateResponse.statusText} ${errorText}`);
-                const errorJson = tryParse(errorText) ?? { error: true };
+                const errorJson = tryParse(errorText) ?? {error: true};
                 return response.status(500).send(errorJson);
             }
             const generateResponseJson = await generateResponse.json();
@@ -641,7 +641,7 @@ async function sendMistralAIRequest(request, response) {
     } catch (error) {
         console.error('Error communicating with MistralAI API: ', error);
         if (!response.headersSent) {
-            response.send({ error: true });
+            response.send({error: true});
         } else {
             response.end();
         }
@@ -663,7 +663,7 @@ async function sendCohereRequest(request, response) {
 
     if (!apiKey) {
         console.warn('Cohere API key is missing.');
-        return response.status(400).send({ error: true });
+        return response.status(400).send({error: true});
     }
 
     try {
@@ -724,7 +724,7 @@ async function sendCohereRequest(request, response) {
             if (!generateResponse.ok) {
                 const errorText = await generateResponse.text();
                 console.warn(`Cohere API returned error: ${generateResponse.status} ${generateResponse.statusText} ${errorText}`);
-                const errorJson = tryParse(errorText) ?? { error: true };
+                const errorJson = tryParse(errorText) ?? {error: true};
                 return response.status(500).send(errorJson);
             }
             const generateResponseJson = await generateResponse.json();
@@ -734,7 +734,7 @@ async function sendCohereRequest(request, response) {
     } catch (error) {
         console.error('Error communicating with Cohere API: ', error);
         if (!response.headersSent) {
-            response.send({ error: true });
+            response.send({error: true});
         } else {
             response.end();
         }
@@ -752,7 +752,7 @@ async function sendDeepSeekRequest(request, response) {
 
     if (!apiKey && !request.body.reverse_proxy) {
         console.warn('DeepSeek API key is missing.');
-        return response.status(400).send({ error: true });
+        return response.status(400).send({error: true});
     }
 
     const controller = new AbortController();
@@ -811,7 +811,7 @@ async function sendDeepSeekRequest(request, response) {
             if (!generateResponse.ok) {
                 const errorText = await generateResponse.text();
                 console.warn(`DeepSeek API returned error: ${generateResponse.status} ${generateResponse.statusText} ${errorText}`);
-                const errorJson = tryParse(errorText) ?? { error: true };
+                const errorJson = tryParse(errorText) ?? {error: true};
                 return response.status(500).send(errorJson);
             }
             const generateResponseJson = await generateResponse.json();
@@ -821,7 +821,7 @@ async function sendDeepSeekRequest(request, response) {
     } catch (error) {
         console.error('Error communicating with DeepSeek API: ', error);
         if (!response.headersSent) {
-            response.send({ error: true });
+            response.send({error: true});
         } else {
             response.end();
         }
@@ -846,7 +846,7 @@ router.post('/status', async function (request, response_getstatus_openai) {
         api_url = 'https://openrouter.ai/api/v1';
         api_key_openai = readSecret(request.user.directories, SECRET_KEYS.OPENROUTER);
         // OpenRouter needs to pass the Referer and X-Title: https://openrouter.ai/docs#requests
-        headers = { ...OPENROUTER_HEADERS };
+        headers = {...OPENROUTER_HEADERS};
     } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.MISTRALAI) {
         api_url = new URL(request.body.reverse_proxy || API_MISTRAL).toString();
         api_key_openai = request.body.reverse_proxy ? request.body.proxy_password : readSecret(request.user.directories, SECRET_KEYS.MISTRALAI);
@@ -874,12 +874,12 @@ router.post('/status', async function (request, response_getstatus_openai) {
         headers = {};
     } else {
         console.warn('This chat completion source is not supported yet.');
-        return response_getstatus_openai.status(400).send({ error: true });
+        return response_getstatus_openai.status(400).send({error: true});
     }
 
     if (!api_key_openai && !request.body.reverse_proxy && request.body.chat_completion_source !== CHAT_COMPLETION_SOURCES.CUSTOM) {
         console.warn('Chat Completion API key is missing.');
-        return response_getstatus_openai.status(400).send({ error: true });
+        return response_getstatus_openai.status(400).send({error: true});
     }
 
     try {
@@ -897,7 +897,7 @@ router.post('/status', async function (request, response_getstatus_openai) {
             response_getstatus_openai.send(data);
 
             if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.COHERE && Array.isArray(data?.models)) {
-                data.data = data.models.map(model => ({ id: model.name, ...model }));
+                data.data = data.models.map(model => ({id: model.name, ...model}));
             }
 
             if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.OPENROUTER && Array.isArray(data?.data)) {
@@ -927,16 +927,15 @@ router.post('/status', async function (request, response_getstatus_openai) {
                     console.warn('Chat Completion endpoint did not return a list of models.');
                 }
             }
-        }
-        else {
+        } else {
             console.error('Chat Completion status check failed. Either Access Token is incorrect or API endpoint is down.');
-            response_getstatus_openai.send({ error: true, can_bypass: true, data: { data: [] } });
+            response_getstatus_openai.send({error: true, can_bypass: true, data: {data: []}});
         }
     } catch (e) {
         console.error(e);
 
         if (!response_getstatus_openai.headersSent) {
-            response_getstatus_openai.send({ error: true });
+            response_getstatus_openai.send({error: true});
         } else {
             response_getstatus_openai.end();
         }
@@ -1029,16 +1028,23 @@ router.post('/bias', async function (request, response) {
 
 
 router.post('/generate', function (request, response) {
-    if (!request.body) return response.status(400).send({ error: true });
+    if (!request.body) return response.status(400).send({error: true});
 
     switch (request.body.chat_completion_source) {
-        case CHAT_COMPLETION_SOURCES.CLAUDE: return sendClaudeRequest(request, response);
-        case CHAT_COMPLETION_SOURCES.SCALE: return sendScaleRequest(request, response);
-        case CHAT_COMPLETION_SOURCES.AI21: return sendAI21Request(request, response);
-        case CHAT_COMPLETION_SOURCES.MAKERSUITE: return sendMakerSuiteRequest(request, response);
-        case CHAT_COMPLETION_SOURCES.MISTRALAI: return sendMistralAIRequest(request, response);
-        case CHAT_COMPLETION_SOURCES.COHERE: return sendCohereRequest(request, response);
-        case CHAT_COMPLETION_SOURCES.DEEPSEEK: return sendDeepSeekRequest(request, response);
+        case CHAT_COMPLETION_SOURCES.CLAUDE:
+            return sendClaudeRequest(request, response);
+        case CHAT_COMPLETION_SOURCES.SCALE:
+            return sendScaleRequest(request, response);
+        case CHAT_COMPLETION_SOURCES.AI21:
+            return sendAI21Request(request, response);
+        case CHAT_COMPLETION_SOURCES.MAKERSUITE:
+            return sendMakerSuiteRequest(request, response);
+        case CHAT_COMPLETION_SOURCES.MISTRALAI:
+            return sendMistralAIRequest(request, response);
+        case CHAT_COMPLETION_SOURCES.COHERE:
+            return sendCohereRequest(request, response);
+        case CHAT_COMPLETION_SOURCES.DEEPSEEK:
+            return sendDeepSeekRequest(request, response);
     }
 
     let apiUrl;
@@ -1078,7 +1084,7 @@ router.post('/generate', function (request, response) {
         apiUrl = 'https://openrouter.ai/api/v1';
         apiKey = readSecret(request.user.directories, SECRET_KEYS.OPENROUTER);
         // OpenRouter needs to pass the Referer and X-Title: https://openrouter.ai/docs#requests
-        headers = { ...OPENROUTER_HEADERS };
+        headers = {...OPENROUTER_HEADERS};
         bodyParams = {
             'transforms': getOpenRouterTransforms(request),
             'plugins': getOpenRouterPlugins(request),
@@ -1152,7 +1158,7 @@ router.post('/generate', function (request, response) {
         bodyParams = {};
     } else {
         console.warn('This chat completion source is not supported yet.');
-        return response.status(400).send({ error: true });
+        return response.status(400).send({error: true});
     }
 
     // A few of OpenAIs reasoning models support reasoning effort
@@ -1164,7 +1170,7 @@ router.post('/generate', function (request, response) {
 
     if (!apiKey && !request.body.reverse_proxy && request.body.chat_completion_source !== CHAT_COMPLETION_SOURCES.CUSTOM) {
         console.warn('OpenAI API key is missing.');
-        return response.status(400).send({ error: true });
+        return response.status(400).send({error: true});
     }
 
     // Add custom stop sequences
@@ -1248,7 +1254,8 @@ router.post('/generate', function (request, response) {
 
             if (fetchResponse.ok) {
                 /** @type {any} */
-                let json = await fetchResponse.json();
+                // let json = await fetchResponse.json();
+                let json = await fixResponse(fetchResponse);
                 response.send(json);
                 console.debug(json);
                 console.debug(json?.choices?.[0]?.message);
@@ -1275,6 +1282,49 @@ router.post('/generate', function (request, response) {
         }
     }
 
+
+    /**
+     * @param {import("node-fetch").Response} response
+     */
+    async function fixResponse(response) {
+        let isStream = response.headers.get('Content-Type')?.includes('text/event-stream') ||
+            response.headers.get('Transfer-Encoding') === 'chunked';
+        if (isStream) {
+            return new Promise((resolve, reject) => {
+                let result = '';
+                let buff = '';
+                const decoder = new TextDecoder();
+                response.body.on('data', (chunk) => {
+                    buff += decoder.decode(chunk, {stream: true});
+
+                    // 分割事件流
+                    const lines = buff.split(/\r?\n/);
+                    buff = lines.pop();
+                    for (const line of lines) {
+                        if (line.startsWith('data:')) {
+                            const eventData = line.replace(/^data:\s*/, '');
+                            if (eventData.trim() === '[DONE]') {
+                                continue;
+                            }
+                            const json = JSON.parse(eventData);
+                            result += json?.choices?.[0]?.delta?.content;
+                        }
+                    }
+                })
+                response.body.on('end', () => {
+                    console.log('convert stream response:\n',result)
+                    resolve({text: result});
+                })
+                response.body.on('error', (err) => {
+                    reject(err);
+                });
+            })
+        } else {
+            return response.json();
+        }
+    }
+
+
     /**
      * @param {import("node-fetch").Response} errorResponse
      */
@@ -1287,7 +1337,7 @@ router.post('/generate', function (request, response) {
         console.error('Chat completion request error: ', message, responseText);
 
         if (!response.headersSent) {
-            response.send({ error: { message }, quota_error: quota_error });
+            response.send({error: {message}, quota_error: quota_error});
         } else if (!response.writableEnded) {
             response.write(errorResponse);
         } else {
