@@ -951,7 +951,7 @@ router.post('/bias', async function (request, response) {
         const model = getTokenizerModel(String(request.query.model || ''));
 
         // no bias for claude
-        if (model == 'claude') {
+        if (model === 'claude') {
             return response.send(result);
         }
 
