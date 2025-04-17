@@ -173,6 +173,7 @@ import {
     escapeHtml,
     saveBase64AsFile,
     uuidv4,
+    equalsIgnoreCaseAndAccents,
 } from './scripts/utils.js';
 import { debounce_timeout, IGNORE_SYMBOL } from './scripts/constants.js';
 
@@ -650,7 +651,7 @@ export const extension_prompt_roles = {
     ASSISTANT: 2,
 };
 
-export const MAX_INJECTION_DEPTH = 1000;
+export const MAX_INJECTION_DEPTH = 10000;
 
 const SAFETY_CHAT = [
     {
@@ -3046,6 +3047,20 @@ export async function getExtensionPromptByName(moduleName) {
 }
 
 /**
+ * Gets the maximum depth of extension prompts.
+ * @returns {number} Maximum depth of extension prompts
+ */
+export function getExtensionPromptMaxDepth() {
+    return MAX_INJECTION_DEPTH;
+    /*
+    const prompts = Object.values(extension_prompts);
+    const maxDepth = Math.max(...prompts.map(x => x.depth ?? 0));
+    // Clamp to 1 <= depth <= MAX_INJECTION_DEPTH
+    return Math.max(Math.min(maxDepth, MAX_INJECTION_DEPTH), 1);
+    */
+}
+
+/**
  * Returns the extension prompt for the given position, depth, and role.
  * If multiple prompts are found, they are joined with a separator.
  * @param {number} [position] Position of the prompt
@@ -5098,7 +5113,8 @@ async function doChatInject(messages, isContinue) {
     let totalInsertedMessages = 0;
     messages.reverse();
 
-    for (let i = 0; i <= MAX_INJECTION_DEPTH; i++) {
+    const maxDepth = getExtensionPromptMaxDepth();
+    for (let i = 0; i <= maxDepth; i++) {
         // Order of priority (most important go lower)
         const roles = [extension_prompt_roles.SYSTEM, extension_prompt_roles.USER, extension_prompt_roles.ASSISTANT];
         const names = {
@@ -9878,6 +9894,15 @@ export async function renameChat(oldFileName, newName) {
         renamed_file: `${newName.trim()}.jsonl`,
     };
 
+    if (body.original_file === body.renamed_file) {
+        console.debug('Chat rename cancelled, old and new names are the same');
+        return;
+    }
+    if (equalsIgnoreCaseAndAccents(body.original_file, body.renamed_file)) {
+        toastr.warning(t`Name not accepted, as it is the same as before (ignoring case and accents).`, t`Rename Chat`);
+        return;
+    }
+
     try {
         showLoader();
         const response = await fetch('/api/chats/rename', {
@@ -11822,8 +11847,8 @@ jQuery(async function () {
             return;
         }
         const drawer = $(this).closest('.inline-drawer');
-        const icon = drawer.find('.inline-drawer-icon');
-        const drawerContent = drawer.find('.inline-drawer-content');
+        const icon = drawer.find('>.inline-drawer-header .inline-drawer-icon');
+        const drawerContent = drawer.find('>.inline-drawer-content');
         icon.toggleClass('down up');
         icon.toggleClass('fa-circle-chevron-down fa-circle-chevron-up');
         drawerContent.stop().slideToggle({
