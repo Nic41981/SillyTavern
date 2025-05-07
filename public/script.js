@@ -97,6 +97,7 @@ import {
     forceCharacterEditorTokenize,
     applyPowerUserSettings,
     generatedTextFiltered,
+    applyStylePins,
 } from './scripts/power-user.js';
 
 import {
@@ -143,6 +144,7 @@ import {
     getHordeModels,
     adjustHordeGenerationParams,
     MIN_LENGTH,
+    initHorde,
 } from './scripts/horde.js';
 
 import {
@@ -175,6 +177,9 @@ import {
     saveBase64AsFile,
     uuidv4,
     equalsIgnoreCaseAndAccents,
+    localizePagination,
+    renderPaginationDropdown,
+    paginationDropdownChangeHandler,
 } from './scripts/utils.js';
 import { debounce_timeout, IGNORE_SYMBOL } from './scripts/constants.js';
 
@@ -994,6 +999,7 @@ async function firstLoadInit() {
     initAuthorsNote();
     await initPersonas();
     initWorldInfo();
+    initHorde();
     initRossMods();
     initStats();
     initCfg();
@@ -1423,30 +1429,26 @@ function getBackBlock() {
     return template;
 }
 
-function getEmptyBlock() {
+async function getEmptyBlock() {
     const icons = ['fa-dragon', 'fa-otter', 'fa-kiwi-bird', 'fa-crow', 'fa-frog'];
-    const texts = ['Here be dragons', 'Otterly empty', 'Kiwibunga', 'Pump-a-Rum', 'Croak it'];
+    const texts = [t`Here be dragons`, t`Otterly empty`, t`Kiwibunga`, t`Pump-a-Rum`, t`Croak it`];
     const roll = new Date().getMinutes() % icons.length;
-    const emptyBlock = `
-    <div class="text_block empty_block">
-        <i class="fa-solid ${icons[roll]} fa-4x"></i>
-        <h1>${texts[roll]}</h1>
-        <p>There are no items to display.</p>
-    </div>`;
+    const params = {
+        text: texts[roll],
+        icon: icons[roll],
+    };
+    const emptyBlock = await renderTemplateAsync('emptyBlock', params);
     return $(emptyBlock);
 }
 
 /**
  * @param {number} hidden Number of hidden characters
  */
-function getHiddenBlock(hidden) {
-    const hiddenBlock = `
-    <div class="text_block hidden_block">
-        <small>
-            <p>${hidden} ${hidden > 1 ? 'characters' : 'character'} hidden.</p>
-            <div class="fa-solid fa-circle-info opacity50p" data-i18n="[title]Characters and groups hidden by filters or closed folders" title="Characters and groups hidden by filters or closed folders"></div>
-        </small>
-    </div>`;
+async function getHiddenBlock(hidden) {
+    const params = {
+        text: (hidden > 1 ? t`${hidden} characters hidden.` : t`${hidden} character hidden.`),
+    };
+    const hiddenBlock = await renderTemplateAsync('hiddenBlock', params);
     return $(hiddenBlock);
 }
 
@@ -1526,10 +1528,11 @@ export async function printCharacters(fullRefresh = false) {
 
     const entities = getEntitiesList({ doFilter: true });
 
+    const pageSize = Number(accountStorage.getItem(storageKey)) || per_page_default;
+    const sizeChangerOptions = [10, 25, 50, 100, 250, 500, 1000];
     $('#rm_print_characters_pagination').pagination({
         dataSource: entities,
-        pageSize: Number(accountStorage.getItem(storageKey)) || per_page_default,
-        sizeChangerOptions: [10, 25, 50, 100, 250, 500, 1000],
+        pageSize,
         pageRange: 1,
         pageNumber: saveCharactersPage || 1,
         position: 'top',
@@ -1538,14 +1541,16 @@ export async function printCharacters(fullRefresh = false) {
         prevText: '<',
         nextText: '>',
         formatNavigator: PAGINATION_TEMPLATE,
+        formatSizeChanger: renderPaginationDropdown(pageSize, sizeChangerOptions),
         showNavigator: true,
-        callback: function (/** @type {Entity[]} */ data) {
+        callback: async function (/** @type {Entity[]} */ data) {
             $(listId).empty();
             if (power_user.bogus_folders && isBogusFolderOpen()) {
                 $(listId).append(getBackBlock());
             }
             if (!data.length) {
-                $(listId).append(getEmptyBlock());
+                const emptyBlock = await getEmptyBlock();
+                $(listId).append(emptyBlock);
             }
             let displayCount = 0;
             for (const i of data) {
@@ -1566,13 +1571,16 @@ export async function printCharacters(fullRefresh = false) {
 
             const hidden = (characters.length + groups.length) - displayCount;
             if (hidden > 0 && entitiesFilter.hasAnyFilter()) {
-                $(listId).append(getHiddenBlock(hidden));
+                const hiddenBlock = await getHiddenBlock(hidden);
+                $(listId).append(hiddenBlock);
             }
+            localizePagination($('#rm_print_characters_pagination'));
 
             eventSource.emit(event_types.CHARACTER_PAGE_LOADED);
         },
-        afterSizeSelectorChange: function (e) {
+        afterSizeSelectorChange: function (e, size) {
             accountStorage.setItem(storageKey, e.target.value);
+            paginationDropdownChangeHandler(e, size);
         },
         afterPaging: function (e) {
             saveCharactersPage = e;
@@ -1913,6 +1921,7 @@ export async function showMoreMessages(messagesToLoad = null) {
         $('#chat').scrollTop(newHeight - prevHeight);
     }
 
+    applyStylePins();
     await eventSource.emit(event_types.MORE_MESSAGES_LOADED);
 }
 
@@ -1950,6 +1959,7 @@ export async function printMessages() {
     hideSwipeButtons();
     showSwipeButtons();
     scrollChatToBottom();
+    applyStylePins();
 
     function incrementAndCheck() {
         imagesLoaded++;
@@ -2753,6 +2763,7 @@ export function substituteParams(content, _name1, _name2, _original, _group, _re
         environment.charVersion = fields.version || '';
         environment.char_version = fields.version || '';
         environment.charDepthPrompt = fields.charDepthPrompt || '';
+        environment.creatorNotes = fields.creatorNotes || '';
     }
 
     // Must be substituted last so that they're replaced inside {{description}}
@@ -3131,6 +3142,7 @@ export function baseChatReplace(value, name1, name2) {
  * @property {string} jailbreak Jailbreak instructions
  * @property {string} version Character version
  * @property {string} charDepthPrompt Character depth note
+ * @property {string} creatorNotes Character creator notes
  * @returns {CharacterCardFields} Character card fields
  */
 export function getCharacterCardFields({ chid = null } = {}) {
@@ -3146,6 +3158,7 @@ export function getCharacterCardFields({ chid = null } = {}) {
         jailbreak: '',
         version: '',
         charDepthPrompt: '',
+        creatorNotes: '',
     };
     result.persona = baseChatReplace(power_user.persona_description?.trim(), name1, name2);
 
@@ -3164,6 +3177,7 @@ export function getCharacterCardFields({ chid = null } = {}) {
     result.jailbreak = power_user.prefer_character_jailbreak ? baseChatReplace(character.data?.post_history_instructions?.trim(), name1, name2) : '';
     result.version = character.data?.character_version ?? '';
     result.charDepthPrompt = baseChatReplace(character.data?.extensions?.depth_prompt?.prompt?.trim(), name1, name2);
+    result.creatorNotes = baseChatReplace(character.data?.creator_notes?.trim(), name1, name2);
 
     if (selected_group) {
         const groupCards = getGroupCharacterCards(selected_group, Number(currentChid));
@@ -3991,11 +4005,14 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
         system,
         jailbreak,
         charDepthPrompt,
+        creatorNotes,
     } = getCharacterCardFields();
 
     if (main_api !== 'openai') {
         if (power_user.sysprompt.enabled) {
-            system = power_user.prefer_character_prompt && system ? system : baseChatReplace(power_user.sysprompt.content, name1, name2);
+            system = power_user.prefer_character_prompt && system
+                ? substituteParams(system, name1, name2, (power_user.sysprompt.content ?? ''))
+                : baseChatReplace(power_user.sysprompt.content, name1, name2);
             system = isInstruct ? formatInstructModeSystemPrompt(substituteParams(system, name1, name2, power_user.sysprompt.content)) : system;
         } else {
             // Nullify if it's not enabled
@@ -4145,7 +4162,15 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
     // Make quiet prompt available for WIAN
     setExtensionPrompt('QUIET_PROMPT', quiet_prompt || '', extension_prompt_types.IN_PROMPT, 0, true);
     const chatForWI = coreChat.map(x => world_info_include_names ? `${x.name}: ${x.mes}` : x.mes).reverse();
-    const { worldInfoString, worldInfoBefore, worldInfoAfter, worldInfoExamples, worldInfoDepth } = await getWorldInfoPrompt(chatForWI, this_max_context, dryRun);
+    const globalScanData = {
+        personaDescription: persona,
+        characterDescription: description,
+        characterPersonality: personality,
+        characterDepthPrompt: charDepthPrompt,
+        scenario: scenario,
+        creatorNotes: creatorNotes,
+    };
+    const { worldInfoString, worldInfoBefore, worldInfoAfter, worldInfoExamples, worldInfoDepth } = await getWorldInfoPrompt(chatForWI, this_max_context, dryRun, globalScanData);
     setExtensionPrompt('QUIET_PROMPT', '', extension_prompt_types.IN_PROMPT, 0, true);
 
     // Add message example WI
@@ -4194,17 +4219,20 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
         injectedIndices = await doChatInject(coreChat, isContinue);
     }
 
-    // Insert character jailbreak as the last user message (if exists, allowed, preferred, and not using Chat Completion)
-    if (power_user.context.allow_jailbreak && power_user.prefer_character_jailbreak && main_api !== 'openai' && jailbreak) {
-        // Set "original" explicity to empty string since there's no original
-        jailbreak = substituteParams(jailbreak, name1, name2, '');
+    if (main_api !== 'openai' && power_user.sysprompt.enabled) {
+        jailbreak = power_user.prefer_character_jailbreak && jailbreak
+            ? substituteParams(jailbreak, name1, name2, (power_user.sysprompt.post_history ?? ''))
+            : baseChatReplace(power_user.sysprompt.post_history, name1, name2);
 
-        // When continuing generation of previous output, last user message precedes the message to continue
-        if (isContinue) {
-            coreChat.splice(coreChat.length - 1, 0, { mes: jailbreak, is_user: true });
-        }
-        else {
-            coreChat.push({ mes: jailbreak, is_user: true });
+        // Only inject the jb if there is one
+        if (jailbreak) {
+            // When continuing generation of previous output, last user message precedes the message to continue
+            if (isContinue) {
+                coreChat.splice(coreChat.length - 1, 0, { mes: jailbreak, is_user: true });
+            }
+            else {
+                coreChat.push({ mes: jailbreak, is_user: true });
+            }
         }
     }
 
@@ -4864,6 +4892,8 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
             userPersona: (power_user.persona_description_position == persona_description_positions.IN_PROMPT ? (persona || '') : ''),
             tokenizer: getFriendlyTokenizerName(main_api).tokenizerName || '',
             presetName: getPresetManager()?.getSelectedPresetName() || '',
+            messagesCount: main_api !== 'openai' ? mesSend.length : oaiMessages.length,
+            examplesCount: main_api !== 'openai' ? (pinExmString ? mesExamplesArray.length : count_exm_add) : oaiMessageExamples.length,
         };
 
         //console.log(additionalPromptStuff);
@@ -5547,6 +5577,8 @@ export async function itemizedParams(itemizedPrompts, thisPromptSet, incomingMes
         modelUsed: chat[incomingMesId]?.extra?.model,
         apiUsed: chat[incomingMesId]?.extra?.api,
         presetName: itemizedPrompts[thisPromptSet].presetName || t`(Unknown)`,
+        messagesCount: String(itemizedPrompts[thisPromptSet].messagesCount ?? ''),
+        examplesCount: String(itemizedPrompts[thisPromptSet].examplesCount ?? ''),
     };
 
     const getFriendlyName = (value) => $(`#rm_api_block select option[value="${value}"]`).first().text() || value;
@@ -8408,15 +8440,15 @@ export function callPopup(text, type, inputValue = '', { okButton, rows, wide, w
     function getOkButtonText() {
         if (['text', 'char_not_selected'].includes(popup_type)) {
             $dialoguePopupCancel.css('display', 'none');
-            return okButton ?? 'Ok';
+            return okButton ?? t`Ok`;
         } else if (['delete_extension'].includes(popup_type)) {
-            return okButton ?? 'Ok';
+            return okButton ?? t`Ok`;
         } else if (['new_chat', 'confirm'].includes(popup_type)) {
-            return okButton ?? 'Yes';
+            return okButton ?? t`Yes`;
         } else if (['input'].includes(popup_type)) {
             return okButton ?? t`Save`;
         }
-        return okButton ?? 'Delete';
+        return okButton ?? t`Delete`;
     }
 
     dialogueCloseStop = true;
@@ -9122,7 +9154,7 @@ function formatSwipeCounter(current, total) {
  * @param {string} [params.source] The source of the swipe event.
  * @param {boolean} [params.repeated] Is the swipe event repeated.
  */
-function swipe_left(_event, { source, repeated } = {}) {
+export function swipe_left(_event, { source, repeated } = {}) {
     if (chat.length - 1 === Number(this_edit_mes_id)) {
         closeMessageEditor();
     }
@@ -9270,7 +9302,7 @@ function swipe_left(_event, { source, repeated } = {}) {
  * @param {string} [params.source] The source of the swipe event.
  * @param {boolean} [params.repeated] Is the swipe event repeated.
  */
-function swipe_right(_event, { source, repeated } = {}) {
+export function swipe_right(_event, { source, repeated } = {}) {
     if (chat.length - 1 === Number(this_edit_mes_id)) {
         closeMessageEditor();
     }

@@ -1,5 +1,5 @@
 import { Fuse, DOMPurify } from '../lib.js';
-import { flashHighlight } from './utils.js';
+import { copyText, flashHighlight } from './utils.js';
 
 import {
     Generate,
@@ -314,6 +314,11 @@ export function initDefaultSlashCommands() {
                 description: 'position to insert the message (index-based, corresponding to message id). If not set, the message will be inserted at the end of the chat.\nNegative values (including -0) are accepted and will work similarly to how \'depth\' usually works. For example, -1 will insert the message right before the last message in chat.',
                 typeList: [ARGUMENT_TYPE.NUMBER],
                 enumProvider: commonEnumProviders.messages({ allowIdAfter: true }),
+            }),
+            SlashCommandNamedArgument.fromProps({
+                name: 'name',
+                description: 'Optional custom display name to use for this system narrator message.',
+                typeList: [ARGUMENT_TYPE.STRING],
             }),
             SlashCommandNamedArgument.fromProps({
                 name: 'return',
@@ -2079,8 +2084,9 @@ export function initDefaultSlashCommands() {
         name: 'replace',
         aliases: ['re'],
         callback: (async ({ mode = 'literal', pattern, replacer = '' }, text) => {
-            if (pattern === '')
+            if (!pattern) {
                 throw new Error('Argument of \'pattern=\' cannot be empty');
+            }
             switch (mode) {
                 case 'literal':
                     return text.replaceAll(pattern, replacer);
@@ -2123,11 +2129,98 @@ export function initDefaultSlashCommands() {
             </div>
             <div>
                 <strong>Example:</strong>
-                <pre>/let x Blue house and blue car ||                                                                        </pre>
-                <pre>/replace pattern="blue" {{var::x}}                                | /echo  |/# Blue house and  car     ||</pre>
-                <pre>/replace pattern="blue" replacer="red" {{var::x}}                 | /echo  |/# Blue house and red car  ||</pre>
-                <pre>/replace mode=regex pattern="/blue/i" replacer="red" {{var::x}}   | /echo  |/# red house and blue car  ||</pre>
-                <pre>/replace mode=regex pattern="/blue/gi" replacer="red" {{var::x}}  | /echo  |/# red house and red car   ||</pre>
+                <pre><code class="language-stscript">/let x Blue house and blue car ||                                                                        </code></pre>
+                <pre><code class="language-stscript">/replace pattern="blue" {{var::x}}                                | /echo  |/# Blue house and  car     ||</code></pre>
+                <pre><code class="language-stscript">/replace pattern="blue" replacer="red" {{var::x}}                 | /echo  |/# Blue house and red car  ||</code></pre>
+                <pre><code class="language-stscript">/replace mode=regex pattern="/blue/i" replacer="red" {{var::x}}   | /echo  |/# red house and blue car  ||</code></pre>
+                <pre><code class="language-stscript">/replace mode=regex pattern="/blue/gi" replacer="red" {{var::x}}  | /echo  |/# red house and red car   ||</code></pre>
+            </div>
+        `,
+    }));
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'test',
+        callback: (({ pattern }, text) => {
+            if (!pattern) {
+                throw new Error('Argument of \'pattern=\' cannot be empty');
+            }
+            const re = regexFromString(pattern.toString());
+            if (!re) {
+                throw new Error('The value of \'pattern\' argument is not a valid regular expression.');
+            }
+            return JSON.stringify(re.test(text.toString()));
+        }),
+        returns: 'true | false',
+        namedArgumentList: [
+            new SlashCommandNamedArgument(
+                'pattern', 'pattern to find', [ARGUMENT_TYPE.STRING], true, false,
+            ),
+        ],
+        unnamedArgumentList: [
+            new SlashCommandArgument(
+                'text to test', [ARGUMENT_TYPE.STRING], true, false,
+            ),
+        ],
+        helpString: `
+            <div>
+                Tests text for a regular expression match.
+            </div>
+            <div>
+                Returns <code>true</code> if the match is found, <code>false</code> otherwise.
+            </div>
+            <div>
+                <strong>Example:</strong>
+                <pre><code class="language-stscript">/let x Blue house and green car                         ||</code></pre>
+                <pre><code class="language-stscript">/test pattern="green" {{var::x}}    | /echo  |/# true   ||</code></pre>
+                <pre><code class="language-stscript">/test pattern="blue" {{var::x}}     | /echo  |/# false  ||</code></pre>
+                <pre><code class="language-stscript">/test pattern="/blue/i" {{var::x}}  | /echo  |/# true   ||</code></pre>
+            </div>
+        `,
+    }));
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'match',
+        callback: (({ pattern }, text) => {
+            if (!pattern) {
+                throw new Error('Argument of \'pattern=\' cannot be empty');
+            }
+            const re = regexFromString(pattern.toString());
+            if (!re) {
+                throw new Error('The value of \'pattern\' argument is not a valid regular expression.');
+            }
+            if (re.flags.includes('g')) {
+                return JSON.stringify([...text.toString().matchAll(re)]);
+            } else {
+                const match = text.toString().match(re);
+                return match ? JSON.stringify(match) : '';
+            }
+        }),
+        returns: 'group array for each match',
+        namedArgumentList: [
+            new SlashCommandNamedArgument(
+                'pattern', 'pattern to find', [ARGUMENT_TYPE.STRING], true, false,
+            ),
+        ],
+        unnamedArgumentList: [
+            new SlashCommandArgument(
+                'text to match against', [ARGUMENT_TYPE.STRING], true, false,
+            ),
+        ],
+        helpString: `
+            <div>
+                Retrieves regular expression matches in the given text
+            </div>
+            <div>
+                Returns an array of groups (with the first group being the full match). If the regex contains the global flag (i.e. <code>/g</code>),
+                multiple nested arrays are returned for each match. If the regex is global, returns <code>[]</code> if no matches are found,
+                otherwise it returns an empty string.
+            </div>
+            <div>
+                <strong>Example:</strong>
+                <pre><code class="language-stscript">/let x color_green green lamp color_blue                                                                            ||</code></pre>
+                <pre><code class="language-stscript">/match pattern="green" {{var::x}}            | /echo  |/# [ "green" ]                                               ||</code></pre>
+                <pre><code class="language-stscript">/match pattern="color_(\\w+)" {{var::x}}      | /echo  |/# [ "color_green", "green" ]                                ||</code></pre>
+                <pre><code class="language-stscript">/match pattern="/color_(\\w+)/g" {{var::x}}   | /echo  |/# [ [ "color_green", "green" ], [ "color_blue", "blue" ] ]  ||</code></pre>
+                <pre><code class="language-stscript">/match pattern="orange" {{var::x}}           | /echo  |/#                                                           ||</code></pre>
+                <pre><code class="language-stscript">/match pattern="/orange/g" {{var::x}}        | /echo  |/# []                                                        ||</code></pre>
             </div>
         `,
     }));
@@ -2189,6 +2282,45 @@ export function initDefaultSlashCommands() {
             <strong>Example:</strong> <pre><code>/chat-jump 10</code></pre> Scrolls to the 11th message (id=10).
         </div>
     `,
+    }));
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'clipboard-get',
+        returns: 'clipboard text',
+        callback: async () => {
+            if (!navigator.clipboard) {
+                toastr.warning('Clipboard API not available in this context.');
+                return '';
+            }
+
+            try {
+                const text = await navigator.clipboard.readText();
+                return text;
+            }
+            catch (error) {
+                console.error('Error reading clipboard:', error);
+                toastr.warning('Failed to read clipboard text. Have you granted the permission?');
+                return '';
+            }
+        },
+        helpString: 'Retrieves the text from the OS clipboard. Only works in secure contexts (HTTPS or localhost). Browser may ask for permission.',
+    }));
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'clipboard-set',
+        callback: async (_, text) => {
+            await copyText(text.toString());
+            return '';
+        },
+        unnamedArgumentList: [
+            SlashCommandArgument.fromProps({
+                description: 'text to copy to the clipboard',
+                typeList: [ARGUMENT_TYPE.STRING],
+                isRequired: true,
+                acceptsMultiple: false,
+            }),
+        ],
+        helpString: 'Copies the provided text to the OS clipboard. Returns an empty string.',
     }));
 
     registerVariableCommands();
@@ -3763,7 +3895,7 @@ export async function sendMessageAs(args, text) {
 
 export async function sendNarratorMessage(args, text) {
     text = String(text ?? '');
-    const name = chat_metadata[NARRATOR_NAME_KEY] || NARRATOR_NAME_DEFAULT;
+    const name = args.name ?? (chat_metadata[NARRATOR_NAME_KEY] || NARRATOR_NAME_DEFAULT);
     // Messages that do nothing but set bias will be hidden from the context
     const bias = extractMessageBias(text);
     const isSystem = bias && !removeMacros(text).length;
