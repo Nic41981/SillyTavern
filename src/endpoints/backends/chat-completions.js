@@ -57,6 +57,7 @@ const API_AI21 = 'https://api.ai21.com/studio/v1';
 const API_NANOGPT = 'https://nano-gpt.com/api/v1';
 const API_DEEPSEEK = 'https://api.deepseek.com/beta';
 const API_XAI = 'https://api.x.ai/v1';
+const API_POLLINATIONS = 'https://text.pollinations.ai/openai';
 
 /**
  * Applies a post-processing step to the generated messages.
@@ -148,7 +149,8 @@ async function sendClaudeRequest(request, response) {
         const useSystemPrompt = (request.body.model.startsWith('claude-2') || request.body.model.startsWith('claude-3')) && request.body.claude_use_sysprompt;
         const convertedPrompt = convertClaudeMessages(request.body.messages, request.body.assistant_prefill, useSystemPrompt, useTools, getPromptNames(request));
         const useThinking = request.body.model.startsWith('claude-3-7') && Boolean(request.body.include_reasoning);
-        let voidPrefill = false;
+        const useWebSearch = /^claude-3-(5|7)/.test(request.body.model) && Boolean(request.body.enable_web_search);
+        let fixThinkingPrefill = false;
         // Add custom stop sequences
         const stopSequences = [];
         if (Array.isArray(request.body.stop)) {
@@ -183,13 +185,17 @@ async function sendClaudeRequest(request, response) {
                 .map(tool => tool.function)
                 .map(fn => ({ name: fn.name, description: fn.description, input_schema: fn.parameters }));
 
-            if (requestBody.tools.length) {
-                // No prefill when using tools
-                voidPrefill = true;
-            }
             if (enableSystemPromptCache && requestBody.tools.length) {
                 requestBody.tools[requestBody.tools.length - 1]['cache_control'] = { type: 'ephemeral' };
             }
+        }
+
+        if (useWebSearch) {
+            const webSearchTool = [{
+                'type': 'web_search_20250305',
+                'name': 'web_search',
+            }];
+            requestBody.tools = [...(requestBody.tools || []), ...webSearchTool];
         }
 
         if (cachingAtDepth !== -1) {
@@ -200,11 +206,12 @@ async function sendClaudeRequest(request, response) {
             betaHeaders.push('prompt-caching-2024-07-31');
         }
 
-        if (useThinking) {
+        const reasoningEffort = request.body.reasoning_effort;
+        const budgetTokens = calculateClaudeBudgetTokens(requestBody.max_tokens, reasoningEffort, requestBody.stream);
+
+        if (useThinking && Number.isInteger(budgetTokens)) {
             // No prefill when thinking
-            voidPrefill = true;
-            const reasoningEffort = request.body.reasoning_effort;
-            const budgetTokens = calculateClaudeBudgetTokens(requestBody.max_tokens, reasoningEffort, requestBody.stream);
+            fixThinkingPrefill = true;
             const minThinkTokens = 1024;
             if (requestBody.max_tokens <= minThinkTokens) {
                 const newValue = requestBody.max_tokens + minThinkTokens;
@@ -223,8 +230,8 @@ async function sendClaudeRequest(request, response) {
             delete requestBody.top_k;
         }
 
-        if (voidPrefill && convertedPrompt.messages.length && convertedPrompt.messages[convertedPrompt.messages.length - 1].role === 'assistant') {
-            convertedPrompt.messages.push({ role: 'user', content: [{ type: 'text', text: '\u200b' }] });
+        if (fixThinkingPrefill && convertedPrompt.messages.length && convertedPrompt.messages[convertedPrompt.messages.length - 1].role === 'assistant') {
+            convertedPrompt.messages[convertedPrompt.messages.length - 1].role = 'user';
         }
 
         if (betaHeaders.length) {
@@ -798,6 +805,14 @@ async function sendDeepSeekRequest(request, response) {
         if (Array.isArray(request.body.tools) && request.body.tools.length > 0) {
             bodyParams['tools'] = request.body.tools;
             bodyParams['tool_choice'] = request.body.tool_choice;
+
+            // DeepSeek doesn't permit empty required arrays
+            bodyParams.tools.forEach(tool => {
+                const required = tool?.function?.parameters?.required;
+                if (Array.isArray(required) && required.length === 0) {
+                    delete tool.function.parameters.required;
+                }
+            });
         }
 
         const postProcessType = String(request.body.model).endsWith('-reasoner') ? 'deepseek-reasoner' : 'deepseek';
@@ -996,6 +1011,10 @@ router.post('/status', async function (request, response_getstatus_openai) {
         api_url = new URL(request.body.reverse_proxy || API_XAI);
         api_key_openai = request.body.reverse_proxy ? request.body.proxy_password : readSecret(request.user.directories, SECRET_KEYS.XAI);
         headers = {};
+    } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.POLLINATIONS) {
+        api_url = 'https://text.pollinations.ai';
+        api_key_openai = 'NONE';
+        headers = {};
     } else {
         console.warn('This chat completion source is not supported yet.');
         return response_getstatus_openai.status(400).send({ error: true });
@@ -1017,7 +1036,12 @@ router.post('/status', async function (request, response_getstatus_openai) {
 
         if (response.ok) {
             /** @type {any} */
-            const data = await response.json();
+            let data = await response.json();
+
+            if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.POLLINATIONS && Array.isArray(data)) {
+                data = { data: data.map(model => ({ id: model.name, ...model })) };
+            }
+
             response_getstatus_openai.send(data);
 
             if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.COHERE && Array.isArray(data?.models)) {
@@ -1279,6 +1303,14 @@ router.post('/generate', function (request, response) {
         apiKey = readSecret(request.user.directories, SECRET_KEYS.ZEROONEAI);
         headers = {};
         bodyParams = {};
+    } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.POLLINATIONS) {
+        apiUrl = API_POLLINATIONS;
+        apiKey = 'NONE';
+        headers = {};
+        bodyParams = {
+            reasoning_effort: request.body.reasoning_effort,
+            private: true,
+        };
     } else {
         console.warn('This chat completion source is not supported yet.');
         return response.status(400).send({ error: true });
