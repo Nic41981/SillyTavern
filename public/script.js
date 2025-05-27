@@ -251,7 +251,7 @@ import { getBackgrounds, initBackgrounds, loadBackgroundSettings, background_set
 import { hideLoader, showLoader } from './scripts/loader.js';
 import { BulkEditOverlay, CharacterContextMenu } from './scripts/BulkEditOverlay.js';
 import { loadFeatherlessModels, loadMancerModels, loadOllamaModels, loadTogetherAIModels, loadInfermaticAIModels, loadOpenRouterModels, loadVllmModels, loadAphroditeModels, loadDreamGenModels, initTextGenModels, loadTabbyModels, loadGenericModels } from './scripts/textgen-models.js';
-import { appendFileContent, hasPendingFileAttachment, populateFileAttachment, decodeStyleTags, encodeStyleTags, isExternalMediaAllowed, getCurrentEntityId, preserveNeutralChat, restoreNeutralChat } from './scripts/chats.js';
+import { appendFileContent, hasPendingFileAttachment, populateFileAttachment, decodeStyleTags, encodeStyleTags, isExternalMediaAllowed, getCurrentEntityId, preserveNeutralChat, restoreNeutralChat, formatCreatorNotes, initChatUtilities } from './scripts/chats.js';
 import { getPresetManager, initPresetManager } from './scripts/preset-manager.js';
 import { evaluateMacros, getLastMessageId, initMacros } from './scripts/macros.js';
 import { currentUser, setUserControls } from './scripts/user.js';
@@ -313,19 +313,28 @@ await new Promise((resolve) => {
     }
 });
 
-showLoader();
-
 // Configure toast library:
-toastr.options.escapeHtml = true; // Prevent raw HTML inserts
-toastr.options.timeOut = 4000; // How long the toast will display without user interaction
-toastr.options.extendedTimeOut = 10000; // How long the toast will display after a user hovers over it
-toastr.options.progressBar = true; // Visually indicate how long before a toast expires.
-toastr.options.closeButton = true; // enable a close button
-toastr.options.positionClass = 'toast-top-center'; // Where to position the toast container
-toastr.options.onHidden = () => {
-    // If we have any dialog still open, the last "hidden" toastr will remove the toastr-container. We need to keep it alive inside the dialog though
-    // so the toasts still show up inside there.
-    fixToastrForDialogs();
+toastr.options = {
+    closeButton: false,
+    progressBar: false,
+    showDuration: 250,
+    hideDuration: 250,
+    timeOut: 4000,
+    extendedTimeOut: 10000,
+    showEasing: 'linear',
+    hideEasing: 'linear',
+    showMethod: 'fadeIn',
+    hideMethod: 'fadeOut',
+    escapeHtml: true,
+    onHidden: function () {
+        // If we have any dialog still open, the last "hidden" toastr will remove the toastr-container. We need to keep it alive inside the dialog though
+        // so the toasts still show up inside there.
+        fixToastrForDialogs();
+    },
+    onShown: function () {
+        // Set tooltip to the notification message
+        $(this).attr('title', t`Tap to close`);
+    },
 };
 
 // Allow target="_blank" in links
@@ -370,7 +379,7 @@ DOMPurify.addHook('uponSanitizeElement', (node, _, config) => {
 
     // Replace line breaks with <br> in unknown elements
     if (node instanceof HTMLUnknownElement) {
-        node.innerHTML = node.innerHTML.replaceAll('\n', '<br>');
+        node.innerHTML = node.innerHTML.trim().replaceAll('\n', '<br>');
     }
 
     const isMediaAllowed = isExternalMediaAllowed();
@@ -453,6 +462,7 @@ DOMPurify.addHook('uponSanitizeElement', (node, _, config) => {
 });
 
 // Event source init
+//MARK: event_types
 export const event_types = {
     APP_READY: 'app_ready',
     EXTRAS_CONNECTED: 'extras_connected',
@@ -545,7 +555,7 @@ console.debug('Character context menu initialized', characterContextMenu);
 // Markdown converter
 export let mesForShowdownParse; //intended to be used as a context to compare showdown strings against
 /** @type {import('showdown').Converter} */
-let converter;
+export let converter;
 
 // array for prompt token calculations
 console.debug('initializing Prompt Itemization Array on Startup');
@@ -960,17 +970,18 @@ export async function pingServer() {
     }
 }
 
+//MARK: firstLoadInit
 async function firstLoadInit() {
     try {
         const tokenResponse = await fetch('/csrf-token');
         const tokenData = await tokenResponse.json();
         token = tokenData.token;
     } catch {
-        hideLoader();
         toastr.error(t`Couldn't get CSRF token. Please refresh the page.`, t`Error`, { timeOut: 0, extendedTimeOut: 0, preventDuplicates: true });
         throw new Error('Initialization failed');
     }
 
+    showLoader();
     initLibraryShims();
     addShowdownPatch(showdown);
     reloadMarkdownProcessor();
@@ -978,6 +989,7 @@ async function firstLoadInit() {
     await getClientVersion();
     await readSecretState();
     await initLocales();
+    initChatUtilities();
     initDefaultSlashCommands();
     initTextGenModels();
     initOpenAI();
@@ -1499,7 +1511,7 @@ function getCharacterBlock(item, id) {
 
     // Display inline tags
     const tagsElement = template.find('.tags');
-    printTagList(tagsElement, { forEntityOrKey: id });
+    printTagList(tagsElement, { forEntityOrKey: id, tagOptions: { isCharacterList: true } });
 
     // Add to the list
     return template;
@@ -2232,7 +2244,7 @@ export function messageFormatting(mes, ch_name, isSystem, isUser, messageId, san
     };
     mes = encodeStyleTags(mes);
     mes = DOMPurify.sanitize(mes, config);
-    mes = decodeStyleTags(mes);
+    mes = decodeStyleTags(mes, { prefix: '.mes_text ' });
 
     return mes;
 }
@@ -3861,6 +3873,7 @@ function removeLastMessage() {
 }
 
 /**
+ * MARK:Generate()
  * Runs a generation using the current chat context.
  * @param {string} type Generation type
  * @param {GenerateOptions} options Generation options
@@ -4183,7 +4196,6 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
 
     console.log(`Core/all messages: ${coreChat.length}/${chat.length}`);
 
-    // kingbri MARK: - Make sure the prompt bias isn't the same as the user bias
     if ((promptBias && !isUserPromptBias) || power_user.always_force_name2 || main_api == 'novel') {
         force_name2 = true;
     }
@@ -5166,6 +5178,7 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
         throw exception;
     }
 }
+//MARK: Generate() ends
 
 /**
  * Stops the generation and any streaming if it is currently running.
@@ -5940,6 +5953,7 @@ function extractImageFromData(data, { mainApi = null, chatCompletionSource = nul
     switch (mainApi ?? main_api) {
         case 'openai': {
             switch (chatCompletionSource ?? oai_settings.chat_completion_source) {
+                case chat_completion_sources.VERTEXAI:
                 case chat_completion_sources.MAKERSUITE: {
                     const inlineData = data?.responseContent?.parts?.find(x => x.inlineData)?.inlineData;
                     if (inlineData) {
@@ -7477,7 +7491,7 @@ function reloadLoop() {
     }
 }
 
-//***************SETTINGS****************//
+//MARK: getSettings()
 ///////////////////////////////////////////
 export async function getSettings() {
     const response = await fetch('/api/settings/get', {
@@ -7671,6 +7685,7 @@ function selectKoboldGuiPreset() {
         .trigger('change');
 }
 
+//MARK: saveSettings()
 export async function saveSettings(loopCounter = 0) {
     if (!settingsReady) {
         console.warn('Settings not ready, scheduling another save');
@@ -8245,7 +8260,7 @@ export function select_selected_character(chid, { switchMenu = true } = {}) {
     $('#description_textarea').val(characters[chid].description);
     $('#character_world').val(characters[chid].data?.extensions?.world || '');
     $('#creator_notes_textarea').val(characters[chid].data?.creator_notes || characters[chid].creatorcomment);
-    $('#creator_notes_spoiler').html(DOMPurify.sanitize(converter.makeHtml(substituteParams(characters[chid].data?.creator_notes) || characters[chid].creatorcomment), { MESSAGE_SANITIZE: true }));
+    $('#creator_notes_spoiler').html(formatCreatorNotes(characters[chid].data?.creator_notes || characters[chid].creatorcomment, characters[chid].avatar));
     $('#character_version_textarea').val(characters[chid].data?.character_version || '');
     $('#system_prompt_textarea').val(characters[chid].data?.system_prompt || '');
     $('#post_history_instructions_textarea').val(characters[chid].data?.post_history_instructions || '');
@@ -8326,7 +8341,7 @@ function select_rm_create({ switchMenu = true } = {}) {
     $('#description_textarea').val(create_save.description);
     $('#character_world').val(create_save.world);
     $('#creator_notes_textarea').val(create_save.creator_notes);
-    $('#creator_notes_spoiler').html(DOMPurify.sanitize(converter.makeHtml(create_save.creator_notes), { MESSAGE_SANITIZE: true }));
+    $('#creator_notes_spoiler').html(formatCreatorNotes(create_save.creator_notes, ''));
     $('#post_history_instructions_textarea').val(create_save.post_history_instructions);
     $('#system_prompt_textarea').val(create_save.system_prompt);
     $('#tags_textarea').val(create_save.tags);
@@ -9338,6 +9353,7 @@ export function swipe_left(_event, { source, repeated } = {}) {
  * @param {string} [params.source] The source of the swipe event.
  * @param {boolean} [params.repeated] Is the swipe event repeated.
  */
+//MARK: swipe_right
 export function swipe_right(_event, { source, repeated } = {}) {
     if (chat.length - 1 === Number(this_edit_mes_id)) {
         closeMessageEditor();
@@ -10355,6 +10371,8 @@ API Settings: ${JSON.stringify(getSettingsContents[getSettingsContents.main_api 
     });
 }
 
+
+// MARK: DOM Handlers Start
 jQuery(async function () {
     async function doForceSave() {
         await saveSettings();
@@ -11294,6 +11312,7 @@ jQuery(async function () {
             $(`.mes[mesid="${this_del_mes}"]`).nextAll('div').remove();
             $(`.mes[mesid="${this_del_mes}"]`).remove();
             chat.length = this_del_mes;
+            chat_metadata['tainted'] = true;
             await saveChatConditional();
             chatElement.scrollTop(chatElement[0].scrollHeight);
             await eventSource.emit(event_types.MESSAGE_DELETED, chat.length);
@@ -11733,6 +11752,7 @@ jQuery(async function () {
         let startFromZero = Number(this_edit_mes_id) === 0;
 
         this_edit_mes_id = undefined;
+        chat_metadata['tainted'] = true;
 
         updateViewMessageIds(startFromZero);
         saveChatDebounced();
