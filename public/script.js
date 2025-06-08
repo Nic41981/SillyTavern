@@ -10,7 +10,6 @@ import {
     SVGInject,
     Popper,
     initLibraryShims,
-    slideToggle,
     default as libs,
 } from './lib.js';
 
@@ -283,6 +282,7 @@ import { getContext } from './scripts/st-context.js';
 import { extractReasoningFromData, initReasoning, parseReasoningInSwipes, PromptReasoning, ReasoningHandler, removeReasoningFromString, updateReasoningUI } from './scripts/reasoning.js';
 import { accountStorage } from './scripts/util/AccountStorage.js';
 import { initWelcomeScreen, openPermanentAssistantChat, openPermanentAssistantCard, getPermanentAssistantAvatar } from './scripts/welcome-screen.js';
+import { initDataMaid } from './scripts/data-maid.js';
 
 // API OBJECT FOR EXTERNAL WIRING
 globalThis.SillyTavern = {
@@ -1026,6 +1026,7 @@ async function firstLoadInit() {
     initWelcomeScreen();
     await initScrapers();
     initCustomSelectedSamplers();
+    initDataMaid();
     addDebugFunctions();
     doDailyExtensionUpdatesCheck();
     await hideLoader();
@@ -2437,7 +2438,7 @@ export function appendMediaToMessage(mes, messageElement, adjustScroll = true) {
         const image = messageElement.find('.mes_img');
         const text = messageElement.find('.mes_text');
         const isInline = !!mes.extra?.inline_image;
-        image.off('load').on('load', function () {
+        const doAdjustScroll = () => {
             if (!adjustScroll) {
                 return;
             }
@@ -2445,6 +2446,16 @@ export function appendMediaToMessage(mes, messageElement, adjustScroll = true) {
             const newChatHeight = $('#chat').prop('scrollHeight');
             const diff = newChatHeight - chatHeight;
             $('#chat').scrollTop(scrollPosition + diff);
+        };
+        image.off('load').on('load', function () {
+            image.removeAttr('alt');
+            image.removeClass('error');
+            doAdjustScroll();
+        });
+        image.off('error').on('error', function () {
+            image.attr('alt', '');
+            image.addClass('error');
+            doAdjustScroll();
         });
         image.attr('src', mes.extra?.image);
         image.attr('title', mes.extra?.title || mes.title || '');
@@ -2469,6 +2480,31 @@ export function appendMediaToMessage(mes, messageElement, adjustScroll = true) {
                 eventSource.emit(event_types.IMAGE_SWIPED, { message: mes, element: messageElement, direction: 'right' });
             });
         }
+    }
+
+    // Add video to message
+    if (mes.extra?.video) {
+        const container = messageElement.find('.mes_block');
+        const chatHeight = $('#chat').prop('scrollHeight');
+
+        // Create video element if it doesn't exist
+        let video = messageElement.find('.mes_video');
+        if (video.length === 0) {
+            video = $('<video class="mes_video" controls preload="metadata"></video>');
+            container.append(video);
+        }
+
+        video.off('loadedmetadata').on('loadedmetadata', function () {
+            if (!adjustScroll) {
+                return;
+            }
+            const scrollPosition = $('#chat').scrollTop();
+            const newChatHeight = $('#chat').prop('scrollHeight');
+            const diff = newChatHeight - chatHeight;
+            $('#chat').scrollTop(scrollPosition + diff);
+        });
+
+        video.attr('src', mes.extra?.video);
     }
 
     // Add file to message
@@ -9377,13 +9413,13 @@ export function swipe_left(_event, { source, repeated } = {}) {
 
 /**
  * Handles the swipe to the right event.
- * @param {JQuery.Event} _event Event.
+ * @param {JQuery.Event} [_event] Event.
  * @param {object} params Additional parameters.
  * @param {string} [params.source] The source of the swipe event.
  * @param {boolean} [params.repeated] Is the swipe event repeated.
  */
 //MARK: swipe_right
-export function swipe_right(_event, { source, repeated } = {}) {
+export function swipe_right(_event = null, { source, repeated } = {}) {
     if (chat.length - 1 === Number(this_edit_mes_id)) {
         closeMessageEditor();
     }
@@ -9395,6 +9431,7 @@ export function swipe_right(_event, { source, repeated } = {}) {
     // Make sure ad-hoc changes to extras are saved before swiping away
     syncMesToSwipe();
 
+    const isPristine = !chat_metadata?.tainted;
     const swipe_duration = 200;
     const swipe_range = 700;
     //console.log(swipe_range);
@@ -9413,14 +9450,16 @@ export function swipe_right(_event, { source, repeated } = {}) {
         };
         //assign swipe info array with last message from chat
     }
-    if (chat.length === 1 && chat[0]['swipe_id'] !== undefined && chat[0]['swipe_id'] === chat[0]['swipes'].length - 1) {    // if swipe_right is called on the last alternate greeting, loop back around
+    // if swipe_right is called on the last alternate greeting in pristine chats, loop back around
+    if (chat.length === 1 && chat[0]['swipe_id'] !== undefined && chat[0]['swipe_id'] === chat[0]['swipes'].length - 1 && isPristine) {
         chat[0]['swipe_id'] = 0;
     } else {
         // If the user is holding down the key and we're at the last swipe, don't do anything
         if (source === 'keyboard' && repeated && chat[chat.length - 1].swipe_id === chat[chat.length - 1].swipes.length - 1) {
             return;
         }
-        chat[chat.length - 1]['swipe_id']++;                                // make new slot in array
+        // make new slot in array
+        chat[chat.length - 1]['swipe_id']++;
     }
     if (chat[chat.length - 1].extra) {
         // if message has memory attached - remove it to allow regen
@@ -9435,8 +9474,8 @@ export function swipe_right(_event, { source, repeated } = {}) {
     if (!Array.isArray(chat[chat.length - 1]['swipe_info'])) {
         chat[chat.length - 1]['swipe_info'] = [];
     }
-    //console.log(chat[chat.length-1]['swipes']);
-    if (parseInt(chat[chat.length - 1]['swipe_id']) === chat[chat.length - 1]['swipes'].length && chat.length !== 1) { //if swipe id of last message is the same as the length of the 'swipes' array and not the greeting
+    //if swipe id of last message is the same as the length of the 'swipes' array and not the greeting
+    if (parseInt(chat[chat.length - 1]['swipe_id']) === chat[chat.length - 1]['swipes'].length && (chat.length !== 1 || !isPristine)) {
         delete chat[chat.length - 1].gen_started;
         delete chat[chat.length - 1].gen_finished;
         run_generate = true;
@@ -10280,86 +10319,43 @@ function doDrawerOpenClick() {
 /**
  * Event handler to open or close a navbar drawer when a navbar icon is clicked.
  * Handles click events on .drawer-toggle elements.
- * @returns {void}
+ * @returns {Promise<void>}
  */
-function doNavbarIconClick() {
+export async function doNavbarIconClick() {
     const icon = $(this).find('.drawer-icon');
     const drawer = $(this).parent().find('.drawer-content');
-    if (drawer.hasClass('resizing')) { return; }
     const drawerWasOpenAlready = $(this).parent().find('.drawer-content').hasClass('openDrawer');
     const targetDrawerID = $(this).parent().find('.drawer-content').attr('id');
-    const pinnedDrawerClicked = drawer.hasClass('pinnedOpen');
 
-    if (!drawerWasOpenAlready) { //to open the drawer
-        $('.openDrawer').not('.pinnedOpen').addClass('resizing').each((_, el) => {
-            slideToggle(el, {
-                ...getSlideToggleOptions(),
-                onAnimationEnd: function (el) {
-                    el.closest('.drawer-content').classList.remove('resizing');
-                },
-            });
-        });
-        $('.openIcon').not('.drawerPinnedOpen').toggleClass('closedIcon openIcon');
-        $('.openDrawer').not('.pinnedOpen').toggleClass('closedDrawer openDrawer');
+    if (!drawerWasOpenAlready) {
+        const $openDrawers = $('.openDrawer:not(.pinnedOpen)');
+        const $openIcons = $('.openIcon:not(.drawerPinnedOpen)');
+        for (const iconEl of $openIcons) {
+            $(iconEl).toggleClass('closedIcon openIcon');
+        }
+        for (const el of $openDrawers) {
+            $(el).toggleClass('closedDrawer openDrawer');
+        }
+        if ($openDrawers.length) {
+            await delay(animation_duration);
+        }
         icon.toggleClass('openIcon closedIcon');
         drawer.toggleClass('openDrawer closedDrawer');
 
-        //console.log(targetDrawerID);
         if (targetDrawerID === 'right-nav-panel') {
-            $(this).closest('.drawer').find('.drawer-content').addClass('resizing').each((_, el) => {
-                slideToggle(el, {
-                    ...getSlideToggleOptions(),
-                    elementDisplayStyle: 'flex',
-                    onAnimationEnd: function (el) {
-                        el.closest('.drawer-content').classList.remove('resizing');
-                        favsToHotswap();
-                        $('#rm_print_characters_block').trigger('scroll');
-                    },
-                });
-            });
-        } else {
-            $(this).closest('.drawer').find('.drawer-content').addClass('resizing').each((_, el) => {
-                slideToggle(el, {
-                    ...getSlideToggleOptions(),
-                    onAnimationEnd: function (el) {
-                        el.closest('.drawer-content').classList.remove('resizing');
-                    },
-                });
-            });
+            favsToHotswap();
+            $('#rm_print_characters_block').trigger('scroll');
         }
 
         // Set the height of "autoSetHeight" textareas within the drawer to their scroll height
         if (!CSS.supports('field-sizing', 'content')) {
-            $(this).closest('.drawer').find('.drawer-content textarea.autoSetHeight').each(async function () {
-                await resetScrollHeight($(this));
-                return;
-            });
+            const textareas = $(this).closest('.drawer').find('.drawer-content textarea.autoSetHeight');
+            for (const textarea of textareas) {
+                await resetScrollHeight($(textarea));
+            }
         }
-
-    } else if (drawerWasOpenAlready) { //to close manually
+    } else if (drawerWasOpenAlready) {
         icon.toggleClass('closedIcon openIcon');
-
-        if (pinnedDrawerClicked) {
-            $(drawer).addClass('resizing').each((_, el) => {
-                slideToggle(el, {
-                    ...getSlideToggleOptions(),
-                    onAnimationEnd: function (el) {
-                        el.classList.remove('resizing');
-                    },
-                });
-            });
-        }
-        else {
-            $('.openDrawer').not('.pinnedOpen').addClass('resizing').each((_, el) => {
-                slideToggle(el, {
-                    ...getSlideToggleOptions(),
-                    onAnimationEnd: function (el) {
-                        el.closest('.drawer-content').classList.remove('resizing');
-                    },
-                });
-            });
-        }
-
         drawer.toggleClass('closedDrawer openDrawer');
     }
 }
@@ -11054,9 +11050,9 @@ jQuery(async function () {
         const oldFileName = oldFileNameFull.replace('.jsonl', '');
 
         const popupText = await renderTemplateAsync('chatRename');
-        const newName = await callPopup(popupText, 'input', oldFileName);
+        const newName = await callGenericPopup(popupText, POPUP_TYPE.INPUT, oldFileName);
 
-        if (!newName || newName == oldFileName) {
+        if (!newName || typeof newName !== 'string' || newName == oldFileName) {
             console.log('no new name found, aborting');
             return;
         }
@@ -11988,8 +11984,8 @@ jQuery(async function () {
 
     $('.drawer-toggle').on('click', doNavbarIconClick);
 
-    $('html').on('touchstart mousedown', function (e) {
-        var clickTarget = $(e.target);
+    $('html').on('touchstart mousedown', async function (e) {
+        const clickTarget = $(e.target);
 
         if (isExportPopupOpen
             && clickTarget.closest('#export_button').length == 0
@@ -12010,28 +12006,21 @@ jQuery(async function () {
             '#toast-container',
             '.select2-results',
         ];
+
         for (const id of forbiddenTargets) {
             if (clickTarget.closest(id).length > 0) {
                 return;
             }
         }
 
-        var targetParentHasOpenDrawer = clickTarget.parents('.openDrawer').length;
-        if (clickTarget.hasClass('drawer-icon') == false && !clickTarget.hasClass('openDrawer')) {
-            if ($('.openDrawer').length !== 0) {
-                if (targetParentHasOpenDrawer === 0) {
-                    //console.log($('.openDrawer').not('.pinnedOpen').length);
-                    $('.openDrawer').not('.pinnedOpen').addClass('resizing').each((_, el) => {
-                        slideToggle(el, {
-                            ...getSlideToggleOptions(),
-                            onAnimationEnd: (el) => {
-                                el.closest('.drawer-content').classList.remove('resizing');
-                            },
-                        });
-                    });
-                    $('.openIcon').not('.drawerPinnedOpen').toggleClass('closedIcon openIcon');
-                    $('.openDrawer').not('.pinnedOpen').toggleClass('closedDrawer openDrawer');
-                }
+        // This autocloses open drawers that are not pinned if a click happens inside the app which does not target them.
+        const targetParentHasOpenDrawer = clickTarget.parents('.openDrawer').length;
+        if (!clickTarget.hasClass('drawer-icon') && !clickTarget.hasClass('openDrawer')) {
+            const $openDrawers = $('.openDrawer').not('.pinnedOpen');
+            if ($openDrawers.length && targetParentHasOpenDrawer === 0) {
+                // Toggle icon and drawer classes
+                $('.openIcon').not('.drawerPinnedOpen').toggleClass('closedIcon openIcon');
+                $openDrawers.toggleClass('closedDrawer openDrawer');
             }
         }
     });
@@ -12045,6 +12034,7 @@ jQuery(async function () {
         const drawerContent = drawer.find('>.inline-drawer-content');
         icon.toggleClass('down up');
         icon.toggleClass('fa-circle-chevron-down fa-circle-chevron-up');
+        drawer.trigger('inline-drawer-toggle');
         drawerContent.stop().slideToggle({
             complete: () => {
                 $(this).css('height', '');
@@ -12141,7 +12131,7 @@ jQuery(async function () {
         if (!(e.target instanceof HTMLElement)) return;
         if (e.target.matches('#OpenAllWIEntries')) {
             document.querySelectorAll('#world_popup_entries_list .inline-drawer').forEach((/** @type {HTMLElement} */ drawer) => {
-                toggleDrawer(drawer, true);
+                delay(0).then(() => toggleDrawer(drawer, true));
             });
         } else if (e.target.matches('#CloseAllWIEntries')) {
             document.querySelectorAll('#world_popup_entries_list .inline-drawer').forEach((/** @type {HTMLElement} */ drawer) => {
