@@ -54,7 +54,7 @@ import { getMessageTimeStamp, isMobile } from './RossAscends-mods.js';
 import { hideChatMessageRange } from './chats.js';
 import { getContext, saveMetadataDebounced } from './extensions.js';
 import { getRegexedString, regex_placement } from './extensions/regex/engine.js';
-import { findGroupMemberId, groups, is_group_generating, openGroupById, resetSelectedGroup, saveGroupChat, selected_group } from './group-chats.js';
+import { findGroupMemberId, groups, is_group_generating, openGroupById, resetSelectedGroup, saveGroupChat, selected_group, getGroupMembers } from './group-chats.js';
 import { chat_completion_sources, oai_settings, promptManager } from './openai.js';
 import { user_avatar } from './personas.js';
 import { addEphemeralStoppingString, chat_styles, flushEphemeralStoppingStrings, power_user } from './power-user.js';
@@ -777,7 +777,7 @@ export function initDefaultSlashCommands() {
             const isId = !isNaN(parseInt(arg));
             const groupMember = findGroupMemberId(arg, true);
             if (!groupMember) {
-                toastr.warn(`No group member found using ${isId ? 'id' : 'string'} ${arg}`);
+                toastr.warning(`No group member found using ${isId ? 'id' : 'string'} ${arg}`);
                 return '';
             }
             return groupMember[field];
@@ -942,6 +942,12 @@ export function initDefaultSlashCommands() {
             </ul>
         </div>
     `,
+    }));
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'member-count',
+        callback: countGroupMemberCallback,
+        aliases: ['countmember', 'membercount'],
+        helpString: 'Returns the total number of group members in the group chat list.',
     }));
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'delswipe',
@@ -2127,6 +2133,9 @@ export function initDefaultSlashCommands() {
             if (!pattern) {
                 throw new Error('Argument of \'pattern=\' cannot be empty');
             }
+            text = text.toString();
+            pattern = pattern.toString();
+            replacer = replacer.toString();
             switch (mode) {
                 case 'literal':
                     return text.replaceAll(pattern, replacer);
@@ -2914,7 +2923,7 @@ async function runCallback(args, name) {
  */
 function abortCallback({ _abortController, quiet }, reason) {
     if (quiet instanceof SlashCommandClosure) throw new Error('argument \'quiet\' cannot be a closure for command /abort');
-    _abortController.abort((reason ?? '').toString().length == 0 ? '/abort command executed' : reason, !isFalseBoolean(quiet ?? 'true'));
+    _abortController.abort((reason ?? '').toString().length == 0 ? '/abort command executed' : reason, !isFalseBoolean(quiet?.toString() ?? 'true'));
     return '';
 }
 
@@ -3541,6 +3550,15 @@ async function peekCallback(_, arg) {
 
     performGroupMemberAction(chid, 'view');
     return '';
+}
+
+async function countGroupMemberCallback() {
+    if (!selected_group) {
+        toastr.warning('Cannot run /member-count command outside of a group chat.');
+        return '';
+    }
+
+    return getGroupMembers(selected_group).length;
 }
 
 async function removeGroupMemberCallback(_, arg) {
@@ -4226,6 +4244,7 @@ function getModelOptions(quiet) {
         { id: 'model_nanogpt_select', api: 'openai', type: chat_completion_sources.NANOGPT },
         { id: 'model_01ai_select', api: 'openai', type: chat_completion_sources.ZEROONEAI },
         { id: 'model_deepseek_select', api: 'openai', type: chat_completion_sources.DEEPSEEK },
+        { id: 'model_aimlapi_select', api: 'openai', type: chat_completion_sources.AIMLAPI },
         { id: 'model_xai_select', api: 'openai', type: chat_completion_sources.XAI },
         { id: 'model_pollinations_select', api: 'openai', type: chat_completion_sources.POLLINATIONS },
         { id: 'model_novel_select', api: 'novel', type: null },
@@ -4937,7 +4956,7 @@ const sendTextarea = document.querySelector('#send_textarea');
 setSlashCommandAutoComplete(sendTextarea);
 sendTextarea.addEventListener('input', () => {
     if (sendTextarea.value[0] == '/') {
-        sendTextarea.style.fontFamily = 'monospace';
+        sendTextarea.style.fontFamily = 'var(--monoFontFamily, monospace)';
     } else {
         sendTextarea.style.fontFamily = null;
     }
