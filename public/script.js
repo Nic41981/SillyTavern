@@ -176,7 +176,7 @@ import {
     renderPaginationDropdown,
     paginationDropdownChangeHandler,
 } from './scripts/utils.js';
-import { debounce_timeout, IGNORE_SYMBOL } from './scripts/constants.js';
+import { debounce_timeout, GENERATION_TYPE_TRIGGERS, IGNORE_SYMBOL } from './scripts/constants.js';
 
 import { cancelDebouncedMetadataSave, doDailyExtensionUpdatesCheck, extension_settings, initExtensions, loadExtensionSettings, runGenerationInterceptors, saveMetadataDebounced } from './scripts/extensions.js';
 import { COMMENT_NAME_DEFAULT, CONNECT_API_MAP, executeSlashCommandsOnChatInput, initDefaultSlashCommands, isExecutingCommandsFromChatInput, pauseScriptExecution, stopScriptExecution, UNIQUE_APIS } from './scripts/slash-commands.js';
@@ -1205,7 +1205,7 @@ export async function getCharacters() {
         headers: getRequestHeaders(),
         body: JSON.stringify({}),
     });
-    if (response.ok === true) {
+    if (response.ok) {
         const previousAvatar = this_chid !== undefined ? characters[this_chid]?.avatar : null;
         characters.splice(0, characters.length);
         const getData = await response.json();
@@ -1234,6 +1234,12 @@ export async function getCharacters() {
 
         await getGroups();
         await printCharacters(true);
+    } else {
+        console.error('Failed to fetch characters:', response.statusText);
+        const errorData = await response.json();
+        if (errorData?.overflow) {
+            await Popup.show.text(t`Character data length limit reached`, t`To resolve this, set "performance.lazyLoadCharacters" to "true" in config.yaml and restart the server.`);
+        }
     }
 }
 
@@ -2682,18 +2688,16 @@ export function parseMesExamples(examplesStr, isInstruct) {
     }
 
     const exampleSeparator = power_user.context.example_separator ? `${substituteParams(power_user.context.example_separator)}\n` : '';
-    const blockHeading = main_api === 'openai' ? '<START>\n' : (exampleSeparator || (isInstruct ? '<START>\n' : ''));
+    const blockHeading = (main_api === 'openai' || isInstruct) ? '<START>\n' : exampleSeparator;
     const splitExamples = examplesStr.split(/<START>/gi).slice(1).map(block => `${blockHeading}${block.trim()}\n`);
 
     return splitExamples;
 }
 
 export function isStreamingEnabled() {
-    const noStreamSources = [chat_completion_sources.SCALE];
     return (
         (main_api == 'openai' &&
             oai_settings.stream_openai &&
-            !noStreamSources.includes(oai_settings.chat_completion_source) &&
             !(oai_settings.chat_completion_source == chat_completion_sources.OPENAI && ['o1-2024-12-17', 'o1'].includes(oai_settings.openai_model))
         )
         || (main_api == 'kobold' && kai_settings.streaming_kobold && kai_flags.can_use_streaming)
@@ -3721,6 +3725,7 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
     // Make quiet prompt available for WIAN
     setExtensionPrompt('QUIET_PROMPT', quiet_prompt || '', extension_prompt_types.IN_PROMPT, 0, true);
     const chatForWI = coreChat.map(x => world_info_include_names ? `${x.name}: ${x.mes}` : x.mes).reverse();
+    /** @type {import('./scripts/world-info.js').WIGlobalScanData} */
     const globalScanData = {
         personaDescription: persona,
         characterDescription: description,
@@ -3728,6 +3733,7 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
         characterDepthPrompt: charDepthPrompt,
         scenario: scenario,
         creatorNotes: creatorNotes,
+        trigger: GENERATION_TYPE_TRIGGERS.includes(type) ? type : 'normal',
     };
     const { worldInfoString, worldInfoBefore, worldInfoAfter, worldInfoExamples, worldInfoDepth } = await getWorldInfoPrompt(chatForWI, this_max_context, dryRun, globalScanData);
     setExtensionPrompt('QUIET_PROMPT', '', extension_prompt_types.IN_PROMPT, 0, true);
@@ -3790,7 +3796,10 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
                 coreChat.splice(coreChat.length - 1, 0, { mes: jailbreak, is_user: true });
             }
             else {
+                // This operation will result in the injectedIndices indexes being off by one
                 coreChat.push({ mes: jailbreak, is_user: true });
+                // Add +1 to the elements to correct for the new PHI/Jailbreak message.
+                injectedIndices.forEach((e, idx) => injectedIndices[idx] = e + 1);
             }
         }
     }
@@ -4751,7 +4760,7 @@ async function doChatInject(messages, isContinue) {
 
         if (roleMessages.length) {
             const depth = isContinue && i === 0 ? 1 : i;
-            const injectIdx = depth + totalInsertedMessages;
+            const injectIdx = Math.min(depth + totalInsertedMessages, messages.length);
             messages.splice(injectIdx, 0, ...roleMessages);
             totalInsertedMessages += roleMessages.length;
             injectedIndices.push(...Array.from({ length: roleMessages.length }, (_, i) => injectIdx + i));
@@ -5308,28 +5317,33 @@ function parseAndSaveLogprobs(data, continueFrom) {
  * @returns {string} Extracted message
  */
 export function extractMessageFromData(data, activeApi = null) {
-    if (typeof data === 'string') {
-        return data;
-    }
+    function getResult() {
+        if (typeof data === 'string') {
+            return data;
+        }
 
-    switch (activeApi ?? main_api) {
-        case 'kobold':
-            return data.results[0].text;
-        case 'koboldhorde':
-            return data.text;
-        case 'textgenerationwebui':
-            return data.choices?.[0]?.text
+        switch (activeApi ?? main_api) {
+            case 'kobold':
+                return data.results[0].text;
+            case 'koboldhorde':
+                return data.text;
+            case 'textgenerationwebui':
+                return data.choices?.[0]?.text
                 ?? data.choices?.[0]?.message?.content
                 ?? data.content
                 ?? data.response
                 ?? '';
-        case 'novel':
-            return data.output;
-        case 'openai':
-            return data?.content?.find(p => p.type === 'text')?.text ?? data?.choices?.[0]?.message?.content ?? data?.choices?.[0]?.text ?? data?.text ?? data?.message?.content?.[0]?.text ?? data?.message?.tool_plan ?? '';
-        default:
-            return '';
+            case 'novel':
+                return data.output;
+            case 'openai':
+                return data?.content?.find(p => p.type === 'text')?.text ?? data?.choices?.[0]?.message?.content ?? data?.choices?.[0]?.text ?? data?.text ?? data?.message?.content?.[0]?.text ?? data?.message?.tool_plan ?? '';
+            default:
+                return '';
+        }
     }
+
+    const result = getResult();
+    return Array.isArray(result) ? result.map(x => x.text).filter(x => x).join('') : result;
 }
 
 /**
@@ -6442,11 +6456,7 @@ async function read_avatar_load(input) {
         const formData = new FormData(/** @type {HTMLFormElement} */($('#form_create').get(0)));
         await fetch(getThumbnailUrl('avatar', formData.get('avatar_url').toString()), {
             method: 'GET',
-            cache: 'no-cache',
-            headers: {
-                'pragma': 'no-cache',
-                'cache-control': 'no-cache',
-            },
+            cache: 'reload',
         });
 
         const messages = $('.mes').toArray();
@@ -6782,10 +6792,6 @@ export function changeMainAPI() {
 
     main_api = selectedVal;
     setOnlineStatus('no_connection');
-
-    if (main_api == 'openai' && oai_settings.chat_completion_source == chat_completion_sources.WINDOWAI) {
-        $('#api_button_openai').trigger('click');
-    }
 
     if (main_api == 'koboldhorde') {
         getStatusHorde();
@@ -8838,6 +8844,7 @@ export async function processDroppedFiles(files, data = new Map()) {
 
     const allowedExtensions = [
         'charx',
+        'byaf',
     ];
 
     const avatarFileNames = [];
@@ -8901,7 +8908,7 @@ async function importCharacter(file, { preserveFileName = '', importTags = false
     }
 
     const ext = file.name.match(/\.(\w+)$/);
-    if (!ext || !(['json', 'png', 'yaml', 'yml', 'charx'].includes(ext[1].toLowerCase()))) {
+    if (!ext || !(['json', 'png', 'yaml', 'yml', 'charx', 'byaf'].includes(ext[1].toLowerCase()))) {
         return;
     }
 
@@ -9268,7 +9275,7 @@ export async function doNavbarIconClick() {
         for (const el of $openDrawers) {
             $(el).toggleClass('closedDrawer openDrawer');
         }
-        if ($openDrawers.length) {
+        if ($openDrawers.length && animation_duration) {
             await delay(animation_duration);
         }
         icon.toggleClass('openIcon closedIcon');
@@ -10486,6 +10493,9 @@ jQuery(async function () {
             await importCharactersTags(avatarFileNames);
             selectImportedChar(avatarFileNames[avatarFileNames.length - 1]);
         }
+
+        // Clear the file input value to allow re-uploading the same file
+        e.target.value = '';
     });
 
     $('#export_button').on('click', function () {
@@ -10848,7 +10858,7 @@ jQuery(async function () {
                             data.set(file, characters[this_chid].avatar);
                             await processDroppedFiles([file], data);
                             await openCharacterChat(chatFile);
-                            await fetch(getThumbnailUrl('avatar', characters[this_chid].avatar), { cache: 'no-cache' });
+                            await fetch(getThumbnailUrl('avatar', characters[this_chid].avatar), { cache: 'reload' });
                         } catch {
                             toastr.error('Failed to replace the character card.', 'Something went wrong');
                         }

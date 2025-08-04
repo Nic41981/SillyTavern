@@ -111,12 +111,12 @@ export function humanizeGenTime(total_gen_time) {
     let hours = time_spent % 24;
     time_spent = Math.floor(time_spent / 24);
     let days = time_spent;
-    time_spent = '';
-    if (days > 0) { time_spent += `${days} Days, `; }
-    if (hours > 0) { time_spent += `${hours} Hours, `; }
-    if (minutes > 0) { time_spent += `${minutes} Minutes, `; }
-    time_spent += `${seconds} Seconds`;
-    return time_spent;
+    let result = '';
+    if (days > 0) { result += `${days} Days, `; }
+    if (hours > 0) { result += `${hours} Hours, `; }
+    if (minutes > 0) { result += `${minutes} Minutes, `; }
+    result += `${seconds} Seconds`;
+    return result;
 }
 
 /**
@@ -397,8 +397,6 @@ function RA_autoconnect(PrevApi) {
             case 'openai':
                 if (((secret_state[SECRET_KEYS.OPENAI] || oai_settings.reverse_proxy) && oai_settings.chat_completion_source == chat_completion_sources.OPENAI)
                     || ((secret_state[SECRET_KEYS.CLAUDE] || oai_settings.reverse_proxy) && oai_settings.chat_completion_source == chat_completion_sources.CLAUDE)
-                    || ((secret_state[SECRET_KEYS.SCALE] || secret_state[SECRET_KEYS.SCALE_COOKIE]) && oai_settings.chat_completion_source == chat_completion_sources.SCALE)
-                    || (oai_settings.chat_completion_source == chat_completion_sources.WINDOWAI)
                     || (secret_state[SECRET_KEYS.OPENROUTER] && oai_settings.chat_completion_source == chat_completion_sources.OPENROUTER)
                     || (secret_state[SECRET_KEYS.AI21] && oai_settings.chat_completion_source == chat_completion_sources.AI21)
                     || (secret_state[SECRET_KEYS.MAKERSUITE] && oai_settings.chat_completion_source == chat_completion_sources.MAKERSUITE)
@@ -408,11 +406,11 @@ function RA_autoconnect(PrevApi) {
                     || (secret_state[SECRET_KEYS.COHERE] && oai_settings.chat_completion_source == chat_completion_sources.COHERE)
                     || (secret_state[SECRET_KEYS.PERPLEXITY] && oai_settings.chat_completion_source == chat_completion_sources.PERPLEXITY)
                     || (secret_state[SECRET_KEYS.GROQ] && oai_settings.chat_completion_source == chat_completion_sources.GROQ)
-                    || (secret_state[SECRET_KEYS.ZEROONEAI] && oai_settings.chat_completion_source == chat_completion_sources.ZEROONEAI)
                     || (secret_state[SECRET_KEYS.NANOGPT] && oai_settings.chat_completion_source == chat_completion_sources.NANOGPT)
                     || (secret_state[SECRET_KEYS.DEEPSEEK] && oai_settings.chat_completion_source == chat_completion_sources.DEEPSEEK)
                     || (secret_state[SECRET_KEYS.XAI] && oai_settings.chat_completion_source == chat_completion_sources.XAI)
                     || (secret_state[SECRET_KEYS.AIMLAPI] && oai_settings.chat_completion_source == chat_completion_sources.AIMLAPI)
+                    || (secret_state[SECRET_KEYS.MOONSHOT] && oai_settings.chat_completion_source == chat_completion_sources.MOONSHOT)
                     || (oai_settings.chat_completion_source === chat_completion_sources.POLLINATIONS)
                     || (isValidUrl(oai_settings.custom_url) && oai_settings.chat_completion_source == chat_completion_sources.CUSTOM)
                 ) {
@@ -531,7 +529,8 @@ export function dragElement($elmnt) {
             return;
         }
 
-        const style = getComputedStyle($target[0]);
+        const element = /** @type {HTMLElement} */ ($target[0]);
+        const style = getComputedStyle(element);
         height = parseInt(style.height);
         width = parseInt(style.width);
         top = parseInt(style.top);

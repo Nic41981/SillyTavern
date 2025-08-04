@@ -61,10 +61,6 @@ router.post('/caption-image', async (request, response) => {
             key = readSecret(request.user.directories, SECRET_KEYS.VLLM);
         }
 
-        if (request.body.api === 'zerooneai') {
-            key = readSecret(request.user.directories, SECRET_KEYS.ZEROONEAI);
-        }
-
         if (request.body.api === 'aimlapi') {
             key = readSecret(request.user.directories, SECRET_KEYS.AIMLAPI);
         }
@@ -75,6 +71,10 @@ router.post('/caption-image', async (request, response) => {
 
         if (request.body.api === 'cohere') {
             key = readSecret(request.user.directories, SECRET_KEYS.COHERE);
+        }
+
+        if (request.body.api === 'moonshot') {
+            key = readSecret(request.user.directories, SECRET_KEYS.MOONSHOT);
         }
 
         const noKeyTypes = ['custom', 'ooba', 'koboldcpp', 'vllm', 'llamacpp', 'pollinations'];
@@ -128,10 +128,6 @@ router.post('/caption-image', async (request, response) => {
             apiUrl = `${request.body.server_url}/chat/completions`;
         }
 
-        if (request.body.api === 'zerooneai') {
-            apiUrl = 'https://api.lingyiwanwu.com/v1/chat/completions';
-        }
-
         if (request.body.api === 'aimlapi') {
             apiUrl = 'https://api.aimlapi.com/v1/chat/completions';
             Object.assign(headers, AIMLAPI_HEADERS);
@@ -159,6 +155,10 @@ router.post('/caption-image', async (request, response) => {
         if (request.body.api === 'pollinations') {
             headers = { Authorization: '' };
             apiUrl = 'https://text.pollinations.ai/openai/chat/completions';
+        }
+
+        if (request.body.api === 'moonshot') {
+            apiUrl = 'https://api.moonshot.ai/v1/chat/completions';
         }
 
         if (['koboldcpp', 'vllm', 'llamacpp', 'ooba'].includes(request.body.api)) {

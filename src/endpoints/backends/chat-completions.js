@@ -59,13 +59,13 @@ const API_PERPLEXITY = 'https://api.perplexity.ai';
 const API_GROQ = 'https://api.groq.com/openai/v1';
 const API_MAKERSUITE = 'https://generativelanguage.googleapis.com';
 const API_VERTEX_AI = 'https://us-central1-aiplatform.googleapis.com';
-const API_01AI = 'https://api.lingyiwanwu.com/v1';
 const API_AI21 = 'https://api.ai21.com/studio/v1';
 const API_NANOGPT = 'https://nano-gpt.com/api/v1';
 const API_DEEPSEEK = 'https://api.deepseek.com/beta';
 const API_XAI = 'https://api.x.ai/v1';
 const API_AIMLAPI = 'https://api.aimlapi.com/v1';
 const API_POLLINATIONS = 'https://text.pollinations.ai/openai';
+const API_MOONSHOT = 'https://api.moonshot.ai/v1';
 
 /**
  * Gets OpenRouter transforms based on the request.
@@ -99,6 +99,23 @@ function getOpenRouterPlugins(request) {
 }
 
 /**
+ * Hacky way to use JSON schema only if json_object format is supported.
+ * @param {object} bodyParams Additional body parameters
+ * @param {object[]} messages Array of messages
+ * @param {object} jsonSchema JSON schema object
+ */
+function setJsonObjectFormat(bodyParams, messages, jsonSchema) {
+    bodyParams['response_format'] = {
+        type: 'json_object',
+    };
+    const message = {
+        role: 'user',
+        content: `JSON schema for the response:\n${JSON.stringify(jsonSchema.value, null, 4)}`,
+    };
+    messages.push(message);
+}
+
+/**
  * Sends a request to Claude API.
  * @param {express.Request} request Express request
  * @param {express.Response} response Express response
@@ -107,11 +124,10 @@ async function sendClaudeRequest(request, response) {
     const apiUrl = new URL(request.body.reverse_proxy || API_CLAUDE).toString();
     const apiKey = request.body.reverse_proxy ? request.body.proxy_password : readSecret(request.user.directories, SECRET_KEYS.CLAUDE);
     const divider = '-'.repeat(process.stdout.columns);
-    const isClaude3or4 = /^claude-(3|opus-4|sonnet-4)/.test(request.body.model);
-    const enableSystemPromptCache = getConfigValue('claude.enableSystemPromptCache', false, 'boolean') && isClaude3or4;
+    const enableSystemPromptCache = getConfigValue('claude.enableSystemPromptCache', false, 'boolean');
     let cachingAtDepth = getConfigValue('claude.cachingAtDepth', -1, 'number');
-    // Disabled if not an integer or negative, or if the model doesn't support it
-    if (!Number.isInteger(cachingAtDepth) || cachingAtDepth < 0 || !isClaude3or4) {
+    // Disabled if not an integer or negative
+    if (!Number.isInteger(cachingAtDepth) || cachingAtDepth < 0) {
         cachingAtDepth = -1;
     }
 
@@ -128,7 +144,7 @@ async function sendClaudeRequest(request, response) {
         });
         const additionalHeaders = {};
         const betaHeaders = ['output-128k-2025-02-19'];
-        const useTools = isClaude3or4 && Array.isArray(request.body.tools) && request.body.tools.length > 0;
+        const useTools = Array.isArray(request.body.tools) && request.body.tools.length > 0;
         const useSystemPrompt = Boolean(request.body.claude_use_sysprompt);
         const convertedPrompt = convertClaudeMessages(request.body.messages, request.body.assistant_prefill, useSystemPrompt, useTools, getPromptNames(request));
         const useThinking = /^claude-(3-7|opus-4|sonnet-4)/.test(request.body.model);
@@ -167,7 +183,7 @@ async function sendClaudeRequest(request, response) {
             requestBody.tools = request.body.tools
                 .filter(tool => tool.type === 'function')
                 .map(tool => tool.function)
-                .map(fn => ({ name: fn.name, description: fn.description, input_schema: fn.parameters }));
+                .map(fn => ({ name: fn.name, description: fn.description, input_schema: flattenSchema(fn.parameters, request.body.chat_completion_source) }));
 
             if (enableSystemPromptCache && requestBody.tools.length) {
                 requestBody.tools[requestBody.tools.length - 1]['cache_control'] = { type: 'ephemeral', ttl: cacheTTL };
@@ -276,58 +292,6 @@ async function sendClaudeRequest(request, response) {
 }
 
 /**
- * Sends a request to Scale Spellbook API.
- * @param {import("express").Request} request Express request
- * @param {import("express").Response} response Express response
- */
-async function sendScaleRequest(request, response) {
-    const apiUrl = new URL(request.body.api_url_scale).toString();
-    const apiKey = readSecret(request.user.directories, SECRET_KEYS.SCALE);
-
-    if (!apiKey) {
-        console.warn('Scale API key is missing.');
-        return response.status(400).send({ error: true });
-    }
-
-    const requestPrompt = convertTextCompletionPrompt(request.body.messages);
-    console.debug('Scale request:', requestPrompt);
-
-    try {
-        const controller = new AbortController();
-        request.socket.removeAllListeners('close');
-        request.socket.on('close', function () {
-            controller.abort();
-        });
-
-        const generateResponse = await fetch(apiUrl, {
-            method: 'POST',
-            body: JSON.stringify({ input: { input: requestPrompt } }),
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Basic ${apiKey}`,
-            },
-        });
-
-        if (!generateResponse.ok) {
-            console.warn(`Scale API returned error: ${generateResponse.status} ${generateResponse.statusText} ${await generateResponse.text()}`);
-            return response.status(500).send({ error: true });
-        }
-
-        /** @type {any} */
-        const generateResponseJson = await generateResponse.json();
-        console.debug('Scale response:', generateResponseJson);
-
-        const reply = { choices: [{ 'message': { 'content': generateResponseJson.output } }] };
-        return response.send(reply);
-    } catch (error) {
-        console.error(error);
-        if (!response.headersSent) {
-            return response.status(500).send({ error: true });
-        }
-    }
-}
-
-/**
  * Sends a request to Google AI API.
  * @param {express.Request} request Express request
  * @param {express.Response} response Express response
@@ -387,6 +351,7 @@ async function sendMakerSuiteRequest(request, response) {
         topK: request.body.top_k || undefined,
         responseMimeType: responseMimeType,
         responseSchema: responseSchema,
+        seed: request.body.seed,
     };
 
     function getGeminiBody() {
@@ -943,7 +908,7 @@ async function sendDeepSeekRequest(request, response) {
         const postProcessType = String(request.body.model).endsWith('-reasoner')
             ? PROMPT_PROCESSING_TYPE.STRICT_TOOLS
             : PROMPT_PROCESSING_TYPE.SEMI_TOOLS;
-        const processedMessages = addAssistantPrefix(postProcessPrompt(request.body.messages, postProcessType, getPromptNames(request)), bodyParams.tools);
+        const processedMessages = addAssistantPrefix(postProcessPrompt(request.body.messages, postProcessType, getPromptNames(request)), bodyParams.tools, 'prefix');
 
         const requestBody = {
             'messages': processedMessages,
@@ -1249,10 +1214,6 @@ router.post('/status', async function (request, statusResponse) {
         apiUrl = API_COHERE_V1;
         apiKey = readSecret(request.user.directories, SECRET_KEYS.COHERE);
         headers = {};
-    } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.ZEROONEAI) {
-        apiUrl = API_01AI;
-        apiKey = readSecret(request.user.directories, SECRET_KEYS.ZEROONEAI);
-        headers = {};
     } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.NANOGPT) {
         apiUrl = API_NANOGPT;
         apiKey = readSecret(request.user.directories, SECRET_KEYS.NANOGPT);
@@ -1276,6 +1237,10 @@ router.post('/status', async function (request, statusResponse) {
     } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.GROQ) {
         apiUrl = API_GROQ;
         apiKey = readSecret(request.user.directories, SECRET_KEYS.GROQ);
+        headers = {};
+    } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.MOONSHOT) {
+        apiUrl = API_MOONSHOT;
+        apiKey = readSecret(request.user.directories, SECRET_KEYS.MOONSHOT);
         headers = {};
     } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.MAKERSUITE) {
         apiKey = request.body.reverse_proxy ? request.body.proxy_password : readSecret(request.user.directories, SECRET_KEYS.MAKERSUITE);
@@ -1492,7 +1457,6 @@ router.post('/generate', function (request, response) {
 
     switch (request.body.chat_completion_source) {
         case CHAT_COMPLETION_SOURCES.CLAUDE: return sendClaudeRequest(request, response);
-        case CHAT_COMPLETION_SOURCES.SCALE: return sendScaleRequest(request, response);
         case CHAT_COMPLETION_SOURCES.AI21: return sendAI21Request(request, response);
         case CHAT_COMPLETION_SOURCES.MAKERSUITE: return sendMakerSuiteRequest(request, response);
         case CHAT_COMPLETION_SOURCES.VERTEXAI: return sendMakerSuiteRequest(request, response);
@@ -1644,11 +1608,6 @@ router.post('/generate', function (request, response) {
         if (request.body.enable_web_search && !/:online$/.test(request.body.model)) {
             request.body.model = `${request.body.model}:online`;
         }
-    } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.ZEROONEAI) {
-        apiUrl = API_01AI;
-        apiKey = readSecret(request.user.directories, SECRET_KEYS.ZEROONEAI);
-        headers = {};
-        bodyParams = {};
     } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.POLLINATIONS) {
         apiUrl = API_POLLINATIONS;
         apiKey = 'NONE';
@@ -1661,17 +1620,17 @@ router.post('/generate', function (request, response) {
             referrer: 'sillytavern',
             seed: request.body.seed ?? Math.floor(Math.random() * 99999999),
         };
-        // Hack to support JSON schema
         if (request.body.json_schema) {
-            bodyParams['response_format'] = {
-                type: 'json_object',
-            };
-            const message = {
-                role: 'user',
-                content: `JSON schema for the response:\n${JSON.stringify(request.body.json_schema.value, null, 4)}`,
-            };
-            request.body.messages.push(message);
+            setJsonObjectFormat(bodyParams, request.body.messages, request.body.json_schema);
         }
+    } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.MOONSHOT) {
+        apiUrl = API_MOONSHOT;
+        apiKey = readSecret(request.user.directories, SECRET_KEYS.MOONSHOT);
+        headers = {};
+        bodyParams = {};
+        request.body.json_schema
+            ? setJsonObjectFormat(bodyParams, request.body.messages, request.body.json_schema)
+            : addAssistantPrefix(request.body.messages, [], 'partial');
     } else {
         console.warn('This chat completion source is not supported yet.');
         return response.status(400).send({ error: true });
