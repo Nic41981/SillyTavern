@@ -66,6 +66,7 @@ const API_XAI = 'https://api.x.ai/v1';
 const API_AIMLAPI = 'https://api.aimlapi.com/v1';
 const API_POLLINATIONS = 'https://text.pollinations.ai/openai';
 const API_MOONSHOT = 'https://api.moonshot.ai/v1';
+const API_FIREWORKS = 'https://api.fireworks.ai/inference/v1';
 
 /**
  * Gets OpenRouter transforms based on the request.
@@ -149,6 +150,7 @@ async function sendClaudeRequest(request, response) {
         const convertedPrompt = convertClaudeMessages(request.body.messages, request.body.assistant_prefill, useSystemPrompt, useTools, getPromptNames(request));
         const useThinking = /^claude-(3-7|opus-4|sonnet-4)/.test(request.body.model);
         const useWebSearch = /^claude-(3-5|3-7|opus-4|sonnet-4)/.test(request.body.model) && Boolean(request.body.enable_web_search);
+        const isOpus41 = /^claude-opus-4-1/.test(request.body.model);
         const cacheTTL = getConfigValue('claude.extendedTTL', false, 'boolean') ? '1h' : '5m';
         let fixThinkingPrefill = false;
         // Add custom stop sequences
@@ -216,6 +218,14 @@ async function sendClaudeRequest(request, response) {
         if (enableSystemPromptCache || cachingAtDepth !== -1) {
             betaHeaders.push('prompt-caching-2024-07-31');
             betaHeaders.push('extended-cache-ttl-2025-04-11');
+        }
+
+        if (isOpus41){
+            if (requestBody.top_p < 1) {
+                delete requestBody.temperature;
+            } else {
+                delete requestBody.top_p;
+            }
         }
 
         const reasoningEffort = request.body.reasoning_effort;
@@ -1242,6 +1252,10 @@ router.post('/status', async function (request, statusResponse) {
         apiUrl = API_MOONSHOT;
         apiKey = readSecret(request.user.directories, SECRET_KEYS.MOONSHOT);
         headers = {};
+    } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.FIREWORKS) {
+        apiUrl = API_FIREWORKS;
+        apiKey = readSecret(request.user.directories, SECRET_KEYS.FIREWORKS);
+        headers = {};
     } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.MAKERSUITE) {
         apiKey = request.body.reverse_proxy ? request.body.proxy_password : readSecret(request.user.directories, SECRET_KEYS.MAKERSUITE);
         apiUrl = trimTrailingSlash(request.body.reverse_proxy || API_MAKERSUITE);
@@ -1600,6 +1614,22 @@ router.post('/generate', function (request, response) {
                 },
             };
         }
+    } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.FIREWORKS) {
+        apiUrl = API_FIREWORKS;
+        apiKey = readSecret(request.user.directories, SECRET_KEYS.FIREWORKS);
+        headers = {};
+        bodyParams = {};
+        if (request.body.json_schema) {
+            bodyParams['response_format'] = {
+                type: 'json_schema',
+                json_schema: {
+                    name: request.body.json_schema.name,
+                    description: request.body.json_schema.description,
+                    schema: request.body.json_schema.value,
+                    strict: request.body.json_schema.strict ?? true,
+                },
+            };
+        }
     } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.NANOGPT) {
         apiUrl = API_NANOGPT;
         apiKey = readSecret(request.user.directories, SECRET_KEYS.NANOGPT);
@@ -1638,8 +1668,26 @@ router.post('/generate', function (request, response) {
 
     // A few of OpenAIs reasoning models support reasoning effort
     if (request.body.reasoning_effort && [CHAT_COMPLETION_SOURCES.CUSTOM, CHAT_COMPLETION_SOURCES.OPENAI].includes(request.body.chat_completion_source)) {
-        if (['o1', 'o3-mini', 'o3-mini-2025-01-31', 'o4-mini', 'o4-mini-2025-04-16', 'o3', 'o3-2025-04-16'].includes(request.body.model)) {
-            bodyParams['reasoning_effort'] = request.body.reasoning_effort;
+        const reasoningEffortModels = [
+            'o1',
+            'o3-mini',
+            'o3-mini-2025-01-31',
+            'o4-mini',
+            'o4-mini-2025-04-16',
+            'o3',
+            'o3-2025-04-16',
+            'gpt-5',
+            'gpt-5-2025-08-07',
+            'gpt-5-mini',
+            'gpt-5-mini-2025-08-07',
+            'gpt-5-nano',
+            'gpt-5-nano-2025-08-07',
+        ];
+        const reasoningEffortMap = {
+            min: 'minimal',
+        };
+        if (reasoningEffortModels.includes(request.body.model)) {
+            bodyParams['reasoning_effort'] = reasoningEffortMap[request.body.reasoning_effort] ?? request.body.reasoning_effort;
         }
     }
 

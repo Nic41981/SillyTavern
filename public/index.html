@@ -691,7 +691,7 @@
                                         </span>
                                     </div>
                                 </div>
-                                <div class="range-block" data-source="openai,claude,aimlapi,openrouter,ai21,makersuite,vertexai,mistralai,custom,cohere,perplexity,groq,nanogpt,deepseek,xai,pollinations,moonshot">
+                                <div class="range-block" data-source="openai,claude,aimlapi,openrouter,ai21,makersuite,vertexai,mistralai,custom,cohere,perplexity,groq,nanogpt,deepseek,xai,pollinations,moonshot,fireworks">
                                     <div class="range-block-title" data-i18n="Temperature">
                                         Temperature
                                     </div>
@@ -704,7 +704,7 @@
                                         </div>
                                     </div>
                                 </div>
-                                <div class="range-block" data-source="openai,aimlapi,openrouter,custom,cohere,perplexity,groq,mistralai,nanogpt,deepseek,xai,pollinations,moonshot">
+                                <div class="range-block" data-source="openai,aimlapi,openrouter,custom,cohere,perplexity,groq,mistralai,nanogpt,deepseek,xai,pollinations,moonshot,fireworks">
                                     <div class="range-block-title" data-i18n="Frequency Penalty">
                                         Frequency Penalty
                                     </div>
@@ -717,7 +717,7 @@
                                         </div>
                                     </div>
                                 </div>
-                                <div class="range-block" data-source="openai,aimlapi,openrouter,custom,cohere,perplexity,groq,mistralai,nanogpt,deepseek,xai,pollinations,moonshot">
+                                <div class="range-block" data-source="openai,aimlapi,openrouter,custom,cohere,perplexity,groq,mistralai,nanogpt,deepseek,xai,pollinations,moonshot,fireworks">
                                     <div class="range-block-title" data-i18n="Presence Penalty">
                                         Presence Penalty
                                     </div>
@@ -743,7 +743,7 @@
                                         </div>
                                     </div>
                                 </div>
-                                <div class="range-block" data-source="openai,claude,aimlapi,openrouter,ai21,makersuite,vertexai,mistralai,custom,cohere,perplexity,groq,nanogpt,deepseek,xai,pollinations,moonshot">
+                                <div class="range-block" data-source="openai,claude,aimlapi,openrouter,ai21,makersuite,vertexai,mistralai,custom,cohere,perplexity,groq,nanogpt,deepseek,xai,pollinations,moonshot,fireworks">
                                     <div class="range-block-title" data-i18n="Top P">
                                         Top P
                                     </div>
@@ -1984,10 +1984,14 @@
                                             </b>
                                         </div>
                                     </div>
-                                    <div class="range-block" data-source="openai,cohere,mistralai,custom,claude,aimlapi,openrouter,groq,deepseek,makersuite,vertexai,ai21,xai,pollinations,moonshot">
+                                    <div class="range-block" data-source="openai,cohere,mistralai,custom,claude,aimlapi,openrouter,groq,deepseek,makersuite,vertexai,ai21,xai,pollinations,moonshot,fireworks">
                                         <label for="openai_function_calling" class="checkbox_label flexWrap widthFreeExpand">
                                             <input id="openai_function_calling" type="checkbox" />
                                             <span data-i18n="Enable function calling">Enable function calling</span>
+                                            <div id="openai_function_calling_supported" data-cc-toggle="false">
+                                                <i class="icon-supported fa-solid fa-circle-check" title="Supported by the current model" data-i18n="[title]Supported by the current model"></i>
+                                                <i class="icon-unsupported fa-solid fa-circle-exclamation" title="Unsupported by the current model" data-i18n="[title]Unsupported by the current model"></i>
+                                            </div>
                                         </label>
                                         <div class="flexBasis100p toggle-description justifyLeft">
                                             <span data-i18n="enable_functions_desc_1">Allows using </span><a href="https://platform.openai.com/docs/guides/function-calling" target="_blank" data-i18n="enable_functions_desc_2">function tools</a>.
@@ -1999,6 +2003,10 @@
                                         <label for="openai_image_inlining" class="checkbox_label flexWrap widthFreeExpand">
                                             <input id="openai_image_inlining" type="checkbox" />
                                             <span data-i18n="Send inline images">Send inline images</span>
+                                            <div id="openai_image_inlining_supported" data-cc-toggle="false">
+                                                <i class="icon-supported fa-solid fa-circle-check" title="Supported by the current model" data-i18n="[title]Supported by the current model"></i>
+                                                <i class="icon-unsupported fa-solid fa-circle-exclamation" title="Unsupported by the current model" data-i18n="[title]Unsupported by the current model"></i>
+                                            </div>
                                         </label>
                                         <div id="image_inlining_hint" class="flexBasis100p toggle-description justifyLeft">
                                             <span data-i18n="image_inlining_hint_1">Sends images in prompts if the model supports it. Use the</span>
@@ -2024,6 +2032,10 @@
                                         <label for="openai_video_inlining" class="checkbox_label flexWrap widthFreeExpand">
                                             <input id="openai_video_inlining" type="checkbox" />
                                             <span data-i18n="Send inline videos">Send inline videos</span>
+                                            <div id="openai_video_inlining_supported" data-cc-toggle="false">
+                                                <i class="icon-supported fa-solid fa-circle-check" title="Supported by the current model" data-i18n="[title]Supported by the current model"></i>
+                                                <i class="icon-unsupported fa-solid fa-circle-exclamation" title="Unsupported by the current model" data-i18n="[title]Unsupported by the current model"></i>
+                                            </div>
                                         </label>
                                         <div id="video_inlining_hint" class="flexBasis100p toggle-description justifyLeft">
                                             <span data-i18n="video_inlining_hint_1">Sends videos in prompts if the model supports it. Use the</span>
@@ -2065,7 +2077,7 @@
                                             </span>
                                         </div>
                                     </div>
-                                    <div class="range-block" data-source="deepseek,aimlapi,openrouter,custom,claude,xai,makersuite,vertexai,pollinations,moonshot,mistralai">
+                                    <div class="range-block" data-source="deepseek,aimlapi,openrouter,custom,claude,xai,makersuite,vertexai,pollinations,moonshot,mistralai,fireworks">
                                         <label for="openai_show_thoughts" class="checkbox_label widthFreeExpand">
                                             <input id="openai_show_thoughts" type="checkbox" />
                                             <span data-i18n="Request model reasoning">Request model reasoning</span>
@@ -2793,6 +2805,7 @@
                                 <option value="claude">Claude</option>
                                 <option value="cohere">Cohere</option>
                                 <option value="deepseek">DeepSeek</option>
+                                <option value="fireworks">Fireworks AI</option>
                                 <option value="groq">Groq</option>
                                 <option value="makersuite">Google AI Studio</option>
                                 <option value="vertexai">Google Vertex AI</option>
@@ -2919,6 +2932,15 @@
                             <div>
                                 <h4 data-i18n="OpenAI Model">OpenAI Model</h4>
                                 <select id="model_openai_select">
+                                    <optgroup label="GPT-5">
+                                        <option value="gpt-5">gpt-5</option>
+                                        <option value="gpt-5-2025-08-07">gpt-5-2025-08-07</option>
+                                        <option value="gpt-5-chat-latest">gpt-5-chat-latest</option>
+                                        <option value="gpt-5-mini">gpt-5-mini</option>
+                                        <option value="gpt-5-mini-2025-08-07">gpt-5-mini-2025-08-07</option>
+                                        <option value="gpt-5-nano">gpt-5-nano</option>
+                                        <option value="gpt-5-nano-2025-08-07">gpt-5-nano-2025-08-07</option>
+                                    </optgroup>
                                     <optgroup label="GPT-4o">
                                         <option value="gpt-4o">gpt-4o</option>
                                         <option value="gpt-4o-2024-11-20">gpt-4o-2024-11-20</option>
@@ -3009,6 +3031,8 @@
                                 <h4 data-i18n="Claude Model">Claude Model</h4>
                                 <select id="model_claude_select">
                                     <optgroup label="Versions">
+                                        <option value="claude-opus-4-1">claude-opus-4-1</option>
+                                        <option value="claude-opus-4-1-20250805">claude-opus-4-1-20250805</option>
                                         <option value="claude-opus-4-0">claude-opus-4-0</option>
                                         <option value="claude-opus-4-20250514">claude-opus-4-20250514</option>
                                         <option value="claude-sonnet-4-0">claude-sonnet-4-0</option>
@@ -3390,6 +3414,7 @@
                                         <option value="mistral-small-2506">mistral-small-2506</option>
                                         <option value="mistral-medium-2312">mistral-medium-2312</option>
                                         <option value="mistral-medium-2505">mistral-medium-2505</option>
+                                        <option value="mistral-medium-2508">mistral-medium-2508</option>
                                         <option value="mistral-large-2402">mistral-large-2402</option>
                                         <option value="mistral-large-2407">mistral-large-2407</option>
                                         <option value="mistral-large-2411">mistral-large-2411</option>
@@ -3401,6 +3426,7 @@
                                         <option value="codestral-2411-rc5">codestral-2411-rc5</option>
                                         <option value="codestral-2412">codestral-2412</option>
                                         <option value="codestral-2501">codestral-2501</option>
+                                        <option value="codestral-2508">codestral-2508</option>
                                         <option value="pixtral-12b-2409">pixtral-12b-2409</option>
                                         <option value="pixtral-large-2411">pixtral-large-2411</option>
                                         <option value="devstral-small-2505">devstral-small-2505</option>
@@ -3470,6 +3496,22 @@
                                     <option value="deepseek-chat">deepseek-chat</option>
                                     <option value="deepseek-coder">deepseek-coder</option>
                                     <option value="deepseek-reasoner">deepseek-reasoner</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div id="fireworks_form" data-source="fireworks">
+                            <h4 data-i18n="Fireworks AI API Key">Fireworks AI API Key</h4>
+                            <div class="flex-container">
+                                <input id="api_key_fireworks" name="api_key_fireworks" class="text_pole flex1" value="" type="text" autocomplete="off">
+                                <div title="Manage API keys" data-i18n="[title]Manage API keys" class="menu_button fa-solid fa-key fa-fw manage-api-keys" data-key="api_key_fireworks"></div>
+                            </div>
+                            <div data-for="api_key_fireworks" class="neutral_warning" data-i18n="For privacy reasons, your API key will be hidden after you click 'Connect'.">
+                                For privacy reasons, your API key will be hidden after you click 'Connect'.
+                            </div>
+                            <div>
+                                <h4 data-i18n="Fireworks AI Model">Fireworks AI Model</h4>
+                                <select id="model_fireworks_select">
+                                    <option value="" data-i18n="-- Connect to the API --">-- Connect to the API --</option>
                                 </select>
                             </div>
                         </div>
@@ -3601,7 +3643,7 @@
                         </div>
                         <div id="aimlapi_form" data-source="aimlapi">
                             <h4>
-                                <span>AI/ML API Key</span>
+                                <span data-i18n="AI/ML API Key">AI/ML API Key</span>
                             </h4>
                             <div class="flex-container">
                                 <input id="api_key_aimlapi" name="api_key_aimlapi" class="text_pole flex1" value="" type="text" autocomplete="off">
@@ -3610,7 +3652,7 @@
                             <div data-for="api_key_aimlapi" class="neutral_warning" data-i18n="For privacy reasons, your API key will be hidden after you click 'Connect'.">
                                 For privacy reasons, your API key will be hidden after you click 'Connect'.
                             </div>
-                            <h4>AI/ML Model</h4>
+                            <h4 data-i18n="AI/ML Model">AI/ML Model</h4>
                             <select id="model_aimlapi_select">
                             </select>
                         </div>
@@ -3763,6 +3805,35 @@
                                     <i class="editor_maximize fa-solid fa-maximize right_menu_button" data-for="context_story_string" title="Expand the editor" data-i18n="[title]Expand the editor"></i>
                                 </label>
                                 <textarea id="context_story_string" class="text_pole textarea_compact autoSetHeight"></textarea>
+                                <div class="flex-container flexFlowColumn">
+                                    <div id="context_story_string_position_block">
+                                        <label for="context_story_string_position">
+                                            <small data-i18n="Position:">Position:</small>
+                                        </label>
+                                        <select id="context_story_string_position" class="text_pole">
+                                            <option value="0" data-i18n="Default (top of context)">Default (top of context)</option>
+                                            <option value="1" data-i18n="In-chat @ Depth">In-chat @ Depth</option>
+                                        </select>
+                                    </div>
+                                    <div id="context_story_string_inject_settings" class="flex-container">
+                                        <div class="flex1">
+                                            <label for="context_story_string_depth">
+                                                <small data-i18n="Depth:">Depth:</small>
+                                            </label>
+                                            <input type="number" id="context_story_string_depth" class="text_pole" min="0" max="">
+                                        </div>
+                                        <div class="flex1">
+                                            <label for="context_story_string_role">
+                                                <small data-i18n="Role:">Role:</small>
+                                            </label>
+                                            <select id="context_story_string_role" class="text_pole">
+                                                <option data-i18n="System" value="0">System</option>
+                                                <option data-i18n="User" value="1">User</option>
+                                                <option data-i18n="Assistant" value="2">Assistant</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
                                 <div class="flex-container">
                                     <div class="flex1">
                                         <label for="context_example_separator">
@@ -3883,6 +3954,10 @@
                                     <input id="instruct_macro" type="checkbox" />
                                     <small data-i18n="Replace Macro in Sequences">Replace Macro in Sequences</small>
                                 </label>
+                                <label for="instruct_sequences_as_stop_strings" class="checkbox_label">
+                                    <input id="instruct_sequences_as_stop_strings" type="checkbox" />
+                                    <small data-i18n="Sequences as Stop Strings">Sequences as Stop Strings</small>
+                                </label>
                                 <label for="instruct_skip_examples" class="checkbox_label">
                                     <input id="instruct_skip_examples" type="checkbox" />
                                     <small data-i18n="Skip Example Dialogues Formatting">Skip Example Dialogues Formatting</small>
@@ -3907,7 +3982,31 @@
                                     </span>
                                 </b>
                             </h4>
-                            <!-- We keep one auto-open so the user would know what is going on in the picked template -->
+                            <!-- We keep some auto-open so the user would know what is going on in the picked template -->
+                            <details open>
+                                <summary>
+                                    <span data-i18n="Story String Sequences">Story String Sequences</span>
+                                    <small class="fa-solid fa-question-circle" title="Used in Default position only." data-i18n="[title]Used in Default position only."></small>
+                                </summary>
+                                <div class="flex-container">
+                                    <div class="flexAuto" title="Inserted before a Story String." data-i18n="[title]Inserted before a Story String.">
+                                        <label for="instruct_story_string_prefix">
+                                            <small data-i18n="Story String Prefix">Story String Prefix</small>
+                                        </label>
+                                        <div>
+                                            <textarea id="instruct_story_string_prefix" class="text_pole textarea_compact autoSetHeight"></textarea>
+                                        </div>
+                                    </div>
+                                    <div class="flexAuto" title="Inserted after a Story String." data-i18n="[title]Inserted after a Story String.">
+                                        <label for="instruct_story_string_suffix">
+                                            <small data-i18n="Story String Suffix">Story String Suffix</small>
+                                        </label>
+                                        <div>
+                                            <textarea id="instruct_story_string_suffix" class="text_pole wide100p textarea_compact autoSetHeight"></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+                            </details>
                             <details open>
                                 <summary data-i18n="User Message Sequences">User Message Sequences</summary>
                                 <div class="flex-container">
@@ -3951,27 +4050,6 @@
                                         <input id="instruct_system_same_as_user" type="checkbox" />
                                         <small data-i18n="System same as User">System same as User</small>
                                     </label>
-                                </div>
-                            </details>
-                            <details>
-                                <summary data-i18n="System Prompt Sequences">System Prompt Sequences</summary>
-                                <div class="flex-container">
-                                    <div class="flexAuto" title="Inserted before a System prompt." data-i18n="[title]Inserted before a System prompt.">
-                                        <label for="instruct_system_sequence_prefix">
-                                            <small data-i18n="System Prompt Prefix">System Prompt Prefix</small>
-                                        </label>
-                                        <div>
-                                            <textarea id="instruct_system_sequence_prefix" class="text_pole textarea_compact autoSetHeight"></textarea>
-                                        </div>
-                                    </div>
-                                    <div class="flexAuto" title="Inserted after a System prompt." data-i18n="[title]Inserted after a System prompt.">
-                                        <label for="instruct_system_sequence_suffix">
-                                            <small data-i18n="System Prompt Suffix">System Prompt Suffix</small>
-                                        </label>
-                                        <div>
-                                            <textarea id="instruct_system_sequence_suffix" class="text_pole wide100p textarea_compact autoSetHeight"></textarea>
-                                        </div>
-                                    </div>
                                 </div>
                             </details>
                             <details>
@@ -4397,28 +4475,30 @@
                     </div>
                     <div id="world_popup">
                         <hr>
-                        <div class="flex-container alignitemscenter gap3px">
+                        <div class="flex-container alignitemscenter">
                             <input type="file" id="world_import_file" accept=".json,.lorebook,.png" name="avatar" hidden>
                             <div id="world_create_button" class="menu_button menu_button_icon">
                                 <i class="fa-solid fa-globe"></i>
                                 <span data-i18n="New">New</span>
                             </div>
                             <small data-i18n="or">or</small>
-                            <select id="world_editor_select" class="margin0">
+                            <select id="world_editor_select">
                                 <option value="" data-i18n="--- Pick to Edit ---">--- Pick to Edit ---</option>
                             </select>
-                            <div id="world_popup_name_button" class="menu_button fa-pencil fa-solid" title="Rename World Info" data-i18n="[title]Rename World Info"></div>
-                            <div id="OpenAllWIEntries" class="menu_button fa-solid fa-expand" title="Open all Entries" data-i18n="[title]Open all Entries"></div>
-                            <div id="CloseAllWIEntries" class="menu_button fa-solid fa-compress" title="Close all Entries" data-i18n="[title]Close all Entries"></div>
-                            <div id="world_popup_new" class="menu_button fa-solid fa-plus" title="New Entry" data-i18n="[title]New Entry"></div>
-                            <div id="world_backfill_memos" class="menu_button fa-solid fa-notes-medical" title="Fill empty Memo/Titles with Keywords" data-i18n="[title]Fill empty Memo/Titles with Keywords"></div>
-                            <div id="world_apply_current_sorting" class="menu_button fa-solid fa-solid fa-arrow-down-9-1" title="Apply current sorting as Order" data-i18n="[title]Apply current sorting as Order"></div>
                             <div id="world_import_button" class="menu_button fa-solid fa-file-import" title="Import World Info" data-i18n="[title]Import World Info"></div>
                             <div id="world_popup_export" class="menu_button fa-solid fa-file-export" title="Export World Info" data-i18n="[title]Export World Info"></div>
+                            <div id="world_popup_name_button" class="menu_button fa-pencil fa-solid" title="Rename World Info" data-i18n="[title]Rename World Info"></div>
                             <div id="world_duplicate" class="menu_button fa-solid fa-paste" title="Duplicate World Info" data-i18n="[title]Duplicate World Info"></div>
                             <div id="world_popup_delete" class="menu_button fa-solid fa-trash-can redWarningBG" title="Delete World Info" data-i18n="[title]Delete World Info"></div>
+                        </div>
+                        <div class="flex-container alignitemscenter">
+                            <div id="world_popup_new" class="menu_button fa-solid fa-plus" title="New Entry" data-i18n="[title]New Entry"></div>
+                            <div id="OpenAllWIEntries" class="menu_button fa-solid fa-expand" title="Open all Entries" data-i18n="[title]Open all Entries"></div>
+                            <div id="CloseAllWIEntries" class="menu_button fa-solid fa-compress" title="Close all Entries" data-i18n="[title]Close all Entries"></div>
+                            <div id="world_backfill_memos" class="menu_button fa-solid fa-notes-medical" title="Fill empty Memo/Titles with Keywords" data-i18n="[title]Fill empty Memo/Titles with Keywords"></div>
+                            <div id="world_apply_current_sorting" class="menu_button fa-solid fa-solid fa-arrow-down-9-1" title="Apply current sorting as Order" data-i18n="[title]Apply current sorting as Order"></div>
                             <input type="search" class="text_pole textarea_compact" data-i18n="[placeholder]Search..." id="world_info_search" placeholder="Search...">
-                            <select id="world_info_sort_order" class="margin0">
+                            <select id="world_info_sort_order" class="text_pole textarea_compact">
                                 <option data-rule="search" value="14" data-i18n="Search" hidden>Search</option>
                                 <option data-rule="priority" value="0" data-i18n="Priority">Priority</option>
                                 <option data-rule="custom" value="13" data-i18n="Custom">Custom</option>
@@ -6335,25 +6415,35 @@
                                             (<span data-i18n="extension_token_counter">Tokens:</span>&nbsp; <span class="world_entry_form_token_counter" data-first-run="true">counting...</span>)&nbsp;
                                             <span class="world_entry_form_uid_value" data-first-run="true"></span>
                                         </span>
-                                        <div>
-                                            <label class="checkbox flex-container alignitemscenter flexNoGap">
-                                                <input type="checkbox" name="excludeRecursion" />
-                                                <span data-i18n="Non-recursable (will not be activated by another)">
-                                                    Non-recursable (will not be activated by another)
-                                                </span>
-                                            </label>
-                                            <label class="checkbox flex-container alignitemscenter flexNoGap">
-                                                <input type="checkbox" name="preventRecursion" />
-                                                <span data-i18n="Prevent further recursion (this entry will not activate others)">
-                                                    Prevent further recursion (will not activate others)
-                                                </span>
-                                            </label>
-                                            <label class="checkbox flex-container alignitemscenter flexNoGap">
-                                                <input type="checkbox" name="delay_until_recursion" />
-                                                <span data-i18n="Delay until recursion (can only be activated on recursive checking)">
-                                                    Delay until recursion (can only be activated on recursive checking)
-                                                </span>
-                                            </label>
+                                        <div class="flex-container">
+                                            <div class="flex-container flexFlowColumn">
+                                                <label class="checkbox flex-container alignitemscenter flexNoGap" title="This entry will not be recursively activated by other entries.">
+                                                    <input type="checkbox" name="excludeRecursion" />
+                                                    <span data-i18n="Non-recursable">
+                                                        Non-recursable
+                                                    </span>
+                                                </label>
+                                                <label class="checkbox flex-container alignitemscenter flexNoGap" title="This entry will not activate other entries recursively." data-i18n="[title]This entry will not activate other entries recursively.">
+                                                    <input type="checkbox" name="preventRecursion" />
+                                                    <span data-i18n="Prevent further recursion">
+                                                        Prevent further recursion
+                                                    </span>
+                                                </label>
+                                            </div>
+                                            <div class="flex-container flexFlowColumn">
+                                                <label class="checkbox flex-container alignitemscenter flexNoGap" title="This entry can only be activated on recursive checking." data-i18n="[title]This entry can only be activated on recursive checking.">
+                                                    <input type="checkbox" name="delay_until_recursion" />
+                                                    <span data-i18n="Delay until recursion">
+                                                        Delay until recursion
+                                                    </span>
+                                                </label>
+                                                <label class="checkbox flex-container alignitemscenter flexNoGap" title="This entry will be included ignoring budget constraints, assuming all other checks pass." data-i18n="[title]This entry will be included ignoring budget constraints, assuming all other checks pass.">
+                                                    <input type="checkbox" name="ignoreBudget" />
+                                                    <span data-i18n="Ignore budget">
+                                                        Ignore budget
+                                                    </span>
+                                                </label>
+                                            </div>
                                         </div>
                                     </span>
                                 </small>
@@ -6854,6 +6944,7 @@
                                 <div class="mes_reasoning_edit_done menu_button edit_button fa-solid fa-check" title="Confirm" data-i18n="[title]Confirm Edit"></div>
                                 <div class="mes_reasoning_delete menu_button edit_button fa-solid fa-trash-can" title="Remove reasoning" data-i18n="[title]Remove reasoning"></div>
                                 <div class="mes_reasoning_edit_cancel menu_button edit_button fa-solid fa-xmark" title="Cancel edit" data-i18n="[title]Cancel edit"></div>
+                                <div class="mes_reasoning_close_all mes_button fa-solid fa-minimize" title="Collapse all reasoning blocks" data-i18n="[title]Collapse all reasoning blocks"></div>
                                 <div class="mes_reasoning_copy mes_button fa-solid fa-copy" title="Copy reasoning" data-i18n="[title]Copy reasoning"></div>
                                 <div class="mes_reasoning_edit mes_button fa-solid fa-pencil" title="Edit reasoning" data-i18n="[title]Edit reasoning"></div>
                             </div>

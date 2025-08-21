@@ -125,6 +125,7 @@ const max_64k = 65535;
 const max_128k = 128 * 1000;
 const max_200k = 200 * 1000;
 const max_256k = 256 * 1000;
+const max_400k = 400 * 1000;
 const max_1mil = 1000 * 1000;
 const max_2mil = 2000 * 1000;
 const claude_max = 9000; // We have a proper tokenizer, so theoretically could be larger (up to 9k)
@@ -184,6 +185,7 @@ export const chat_completion_sources = {
     XAI: 'xai',
     POLLINATIONS: 'pollinations',
     MOONSHOT: 'moonshot',
+    FIREWORKS: 'fireworks',
 };
 
 const character_names_behavior = {
@@ -274,6 +276,7 @@ export const settingsToUpdate = {
     xai_model: ['#model_xai_select', 'xai_model', false, true],
     pollinations_model: ['#model_pollinations_select', 'pollinations_model', false, true],
     moonshot_model: ['#model_moonshot_select', 'moonshot_model', false, true],
+    fireworks_model: ['#model_fireworks_select', 'fireworks_model', false, true],
     custom_model: ['#custom_model_id', 'custom_model', false, true],
     custom_url: ['#custom_api_url_text', 'custom_url', false, true],
     custom_include_body: ['#custom_include_body', 'custom_include_body', false, true],
@@ -370,6 +373,7 @@ const default_settings = {
     xai_model: 'grok-3-beta',
     pollinations_model: 'openai',
     moonshot_model: 'kimi-latest',
+    fireworks_model: 'accounts/fireworks/models/kimi-k2-instruct',
     custom_model: '',
     custom_url: '',
     custom_include_body: '',
@@ -457,6 +461,7 @@ const oai_settings = {
     xai_model: 'grok-3-beta',
     pollinations_model: 'openai',
     moonshot_model: 'kimi-latest',
+    fireworks_model: 'accounts/fireworks/models/kimi-k2-instruct',
     custom_model: '',
     custom_url: '',
     custom_include_body: '',
@@ -1619,6 +1624,8 @@ export function getChatCompletionModel(source = null) {
             return oai_settings.pollinations_model;
         case chat_completion_sources.MOONSHOT:
             return oai_settings.moonshot_model;
+        case chat_completion_sources.FIREWORKS:
+            return oai_settings.fireworks_model;
         default:
             console.error(`Unknown chat completion source: ${activeSource}`);
             return '';
@@ -1871,6 +1878,27 @@ function saveModelList(data) {
 
         $('#model_groq_select').val(oai_settings.groq_model).trigger('change');
     }
+
+    if (oai_settings.chat_completion_source === chat_completion_sources.FIREWORKS) {
+        $('#model_fireworks_select').empty();
+        model_list.forEach((model) => {
+            if (!model?.supports_chat) {
+                return;
+            }
+            $('#model_fireworks_select').append(
+                $('<option>', {
+                    value: model.id,
+                    text: model.id,
+                }));
+        });
+
+        const selectedModel = model_list.find(model => model.id === oai_settings.fireworks_model);
+        if (model_list.length > 0 && (!selectedModel || !oai_settings.fireworks_model)) {
+            oai_settings.fireworks_model = model_list[0].id;
+        }
+
+        $('#model_fireworks_select').val(oai_settings.fireworks_model).trigger('change');
+    }
 }
 
 function appendOpenRouterOptions(model_list, groupModels = false, sort = false) {
@@ -1998,7 +2026,9 @@ function getReasoningEffort() {
         case reasoning_effort_types.auto:
             return undefined;
         case reasoning_effort_types.min:
-            return reasoning_effort_types.low;
+            return chat_completion_sources.OPENAI === oai_settings.chat_completion_source && /^gpt-5/.test(oai_settings.openai_model)
+                ? reasoning_effort_types.min
+                : reasoning_effort_types.low;
         case reasoning_effort_types.max:
             return reasoning_effort_types.high;
         default:
@@ -2272,6 +2302,24 @@ async function sendOpenAIRequest(type, messages, signal, { jsonSchema = null } =
             delete generate_data.n;
             delete generate_data.tools;
             delete generate_data.tool_choice;
+        }
+    }
+
+    if (isOAI && /^gpt-5/.test(oai_settings.openai_model)) {
+        generate_data.max_completion_tokens = generate_data.max_tokens;
+        delete generate_data.max_tokens;
+        delete generate_data.logprobs;
+        delete generate_data.top_logprobs;
+        if (/chat-latest/.test(oai_settings.openai_model)) {
+            delete generate_data.tools;
+            delete generate_data.tool_choice;
+        } else {
+            delete generate_data.temperature;
+            delete generate_data.top_p;
+            delete generate_data.frequency_penalty;
+            delete generate_data.presence_penalty;
+            delete generate_data.logit_bias;
+            delete generate_data.stop;
         }
     }
 
@@ -3359,6 +3407,7 @@ function loadOpenAISettings(data, settings) {
     oai_settings.xai_model = settings.xai_model ?? default_settings.xai_model;
     oai_settings.pollinations_model = settings.pollinations_model ?? default_settings.pollinations_model;
     oai_settings.moonshot_model = settings.moonshot_model ?? default_settings.moonshot_model;
+    oai_settings.fireworks_model = settings.fireworks_model ?? default_settings.fireworks_model;
     oai_settings.custom_model = settings.custom_model ?? default_settings.custom_model;
     oai_settings.custom_url = settings.custom_url ?? default_settings.custom_url;
     oai_settings.custom_include_body = settings.custom_include_body ?? default_settings.custom_include_body;
@@ -3731,6 +3780,7 @@ async function saveOpenAIPreset(name, settings, triggerUi = true) {
         pollinations_model: settings.pollinations_model,
         aimlapi_model: settings.aimlapi_model,
         moonshot_model: settings.moonshot_model,
+        fireworks_model: settings.fireworks_model,
         custom_model: settings.custom_model,
         custom_url: settings.custom_url,
         custom_include_body: settings.custom_include_body,
@@ -4271,6 +4321,9 @@ function getMaxContextOpenAI(value) {
     if (oai_settings.max_context_unlocked) {
         return unlocked_max;
     }
+    else if (value.startsWith('gpt-5')) {
+        return max_400k;
+    }
     else if (value.includes('gpt-4.1')) {
         return max_1mil;
     }
@@ -4326,10 +4379,12 @@ function getMistralMaxContext(model, isUnlocked) {
     }
 
     const contextMap = {
+        'codestral-2405': 32768,
         'codestral-2411-rc5': 262144,
         'codestral-2412': 262144,
         'codestral-2501': 262144,
-        'codestral-latest': 262144,
+        'codestral-2508': 256000,
+        'codestral-latest': 256000,
         'codestral-mamba-2407': 262144,
         'codestral-mamba-latest': 262144,
         'open-codestral-mamba': 262144,
@@ -4352,13 +4407,13 @@ function getMistralMaxContext(model, isUnlocked) {
         'pixtral-large-latest': 131072,
         'open-mixtral-8x22b': 65536,
         'open-mixtral-8x22b-2404': 65536,
-        'codestral-2405': 32768,
         'mistral-embed': 32768,
         'mistral-large-2402': 32768,
         'mistral-medium': 131072,
         'mistral-medium-2312': 32768,
         'mistral-medium-2505': 131072,
-        'mistral-medium-latest': 131072,
+        'mistral-medium-2508': 262144,
+        'mistral-medium-latest': 262144,
         'mistral-moderation-2411': 32768,
         'mistral-moderation-latest': 32768,
         'mistral-ocr-2503': 32768,
@@ -4461,6 +4516,31 @@ function getMoonshotMaxContext(model, isUnlocked) {
 
     // Return context size if model found, otherwise default to 32k
     return Object.entries(contextMap).find(([key]) => model.includes(key))?.[1] || max_32k;
+}
+
+/**
+ * Get the maximum context size for the Fireworks model
+ * @param {string} model Model identifier
+ * @param {boolean} isUnlocked Whether context limits are unlocked
+ * @returns {number} Maximum context size in tokens
+ */
+function getFireworksMaxContext(model, isUnlocked) {
+    if (isUnlocked) {
+        return unlocked_max;
+    }
+
+    // First check if model info is available from model_list
+    if (Array.isArray(model_list) && model_list.length > 0) {
+        const modelInfo = model_list.find((record) => record.id === model);
+        if (modelInfo?.context_length) {
+            return modelInfo.context_length;
+        }
+        if (modelInfo?.context_window) {
+            return modelInfo.context_window;
+        }
+    }
+
+    return max_32k;
 }
 
 async function onModelChange() {
@@ -4601,6 +4681,15 @@ async function onModelChange() {
     if (value && $(this).is('#model_moonshot_select')) {
         console.log('Moonshot model changed to', value);
         oai_settings.moonshot_model = value;
+    }
+
+    if ($(this).is('#model_fireworks_select')) {
+        if (!value) {
+            console.debug('Null Fireworks model selected. Ignoring.');
+            return;
+        }
+        console.log('Fireworks model changed to', value);
+        oai_settings.fireworks_model = value;
     }
 
     if ([chat_completion_sources.MAKERSUITE, chat_completion_sources.VERTEXAI].includes(oai_settings.chat_completion_source)) {
@@ -4875,9 +4964,19 @@ async function onModelChange() {
         $('#temp_openai').attr('max', claude_max_temp).val(oai_settings.temp_openai).trigger('input');
     }
 
+    if (oai_settings.chat_completion_source === chat_completion_sources.FIREWORKS) {
+        const maxContext = getFireworksMaxContext(oai_settings.fireworks_model, oai_settings.max_context_unlocked);
+        $('#openai_max_context').attr('max', maxContext);
+        oai_settings.openai_max_context = Math.min(Number($('#openai_max_context').attr('max')), oai_settings.openai_max_context);
+        $('#openai_max_context').val(oai_settings.openai_max_context).trigger('input');
+        oai_settings.temp_openai = Math.min(oai_max_temp, oai_settings.temp_openai);
+        $('#temp_openai').attr('max', oai_max_temp).val(oai_settings.temp_openai).trigger('input');
+    }
+
     $('#openai_max_context_counter').attr('max', Number($('#openai_max_context').attr('max')));
 
     saveSettingsDebounced();
+    updateFeatureSupportFlags();
     eventSource.emit(event_types.CHATCOMPLETION_MODEL_CHANGED, value);
 }
 
@@ -5119,6 +5218,19 @@ async function onConnectButtonClick(e) {
         }
     }
 
+    if (oai_settings.chat_completion_source == chat_completion_sources.FIREWORKS) {
+        const api_key_fireworks = String($('#api_key_fireworks').val()).trim();
+
+        if (api_key_fireworks.length) {
+            await writeSecret(SECRET_KEYS.FIREWORKS, api_key_fireworks);
+        }
+
+        if (!secret_state[SECRET_KEYS.FIREWORKS]) {
+            console.log('No secret key saved for Fireworks');
+            return;
+        }
+    }
+
     startStatusLoading();
     saveSettingsDebounced();
     await getStatusOpen();
@@ -5182,6 +5294,9 @@ function toggleChatCompletionForms() {
     }
     else if (oai_settings.chat_completion_source == chat_completion_sources.MOONSHOT) {
         $('#model_moonshot_select').trigger('change');
+    }
+    else if (oai_settings.chat_completion_source == chat_completion_sources.FIREWORKS) {
+        $('#model_fireworks_select').trigger('change');
     }
     $('[data-source]').each(function () {
         const validSources = $(this).data('source').split(',');
@@ -5264,6 +5379,7 @@ export function isImageInliningSupported() {
         'gpt-4.1',
         'gpt-4.5-preview',
         'gpt-4o',
+        'gpt-5',
         'o1',
         'o3',
         'o4-mini',
@@ -5286,6 +5402,7 @@ export function isImageInliningSupported() {
         'mistral-small-latest',
         'mistral-medium-latest',
         'mistral-medium-2505',
+        'mistral-medium-2508',
         'pixtral',
         // xAI (Grok)
         'grok-4',
@@ -5617,7 +5734,20 @@ function updateVertexAIServiceAccountStatus(isValid = false, message = '') {
     }
 }
 
+function updateFeatureSupportFlags() {
+    const featureFlags = {
+        openai_function_calling_supported: ToolManager.isToolCallingSupported(),
+        openai_image_inlining_supported: isImageInliningSupported(),
+        openai_video_inlining_supported: isVideoInliningSupported(),
+    };
 
+    for (const [key, value] of Object.entries(featureFlags)) {
+        const element = document.getElementById(key);
+        if (element) {
+            element.dataset.ccToggle = String(value);
+        }
+    }
+}
 
 export function initOpenAI() {
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -5841,6 +5971,7 @@ export function initOpenAI() {
         saveSettingsDebounced();
         reconnectOpenAi();
         forceCharacterEditorTokenize();
+        updateFeatureSupportFlags();
         eventSource.emit(event_types.CHATCOMPLETION_SOURCE_CHANGED, oai_settings.chat_completion_source);
     });
 
@@ -6114,6 +6245,7 @@ export function initOpenAI() {
     $('#model_xai_select').on('change', onModelChange);
     $('#model_pollinations_select').on('change', onModelChange);
     $('#model_moonshot_select').on('change', onModelChange);
+    $('#model_fireworks_select').on('change', onModelChange);
     $('#settings_preset_openai').on('change', onSettingsPresetChange);
     $('#new_oai_preset').on('click', onNewPresetClick);
     $('#delete_oai_preset').on('click', onDeletePresetClick);
