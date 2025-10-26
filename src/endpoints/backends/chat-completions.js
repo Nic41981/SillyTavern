@@ -73,6 +73,7 @@ const API_POLLINATIONS = 'https://text.pollinations.ai/openai';
 const API_MOONSHOT = 'https://api.moonshot.ai/v1';
 const API_FIREWORKS = 'https://api.fireworks.ai/inference/v1';
 const API_COMETAPI = 'https://api.cometapi.com/v1';
+const API_ZAI = 'https://api.z.ai/api/paas/v4';
 
 /**
  * Gets OpenRouter transforms based on the request.
@@ -154,9 +155,9 @@ async function sendClaudeRequest(request, response) {
         const useTools = Array.isArray(request.body.tools) && request.body.tools.length > 0;
         const useSystemPrompt = Boolean(request.body.claude_use_sysprompt);
         const convertedPrompt = convertClaudeMessages(request.body.messages, request.body.assistant_prefill, useSystemPrompt, useTools, getPromptNames(request));
-        const useThinking = /^claude-(3-7|opus-4|sonnet-4)/.test(request.body.model);
-        const useWebSearch = /^claude-(3-5|3-7|opus-4|sonnet-4)/.test(request.body.model) && Boolean(request.body.enable_web_search);
-        const isOpus41 = /^claude-opus-4-1/.test(request.body.model);
+        const useThinking = /^claude-(3-7|opus-4|sonnet-4|haiku-4-5)/.test(request.body.model);
+        const useWebSearch = /^claude-(3-5|3-7|opus-4|sonnet-4|haiku-4-5)/.test(request.body.model) && Boolean(request.body.enable_web_search);
+        const isLimitedSampling = /^claude-(opus-4-1|sonnet-4-5|haiku-4-5)/.test(request.body.model);
         const cacheTTL = getConfigValue('claude.extendedTTL', false, 'boolean') ? '1h' : '5m';
         let fixThinkingPrefill = false;
         // Add custom stop sequences
@@ -226,7 +227,7 @@ async function sendClaudeRequest(request, response) {
             betaHeaders.push('extended-cache-ttl-2025-04-11');
         }
 
-        if (isOpus41) {
+        if (isLimitedSampling) {
             if (requestBody.top_p < 1) {
                 delete requestBody.temperature;
             } else {
@@ -377,24 +378,16 @@ async function sendMakerSuiteRequest(request, response) {
             'gemini-2.0-flash-exp-image-generation',
             'gemini-2.0-flash-preview-image-generation',
             'gemini-2.5-flash-image-preview',
+            'gemini-2.5-flash-image',
         ];
 
-        // These models do not support setting the threshold to OFF at all.
-        const blockNoneModels = [
-            'gemini-1.5-pro-001',
-            'gemini-1.5-flash-001',
-            'gemini-1.5-flash-8b-exp-0827',
-            'gemini-1.5-flash-8b-exp-0924',
-        ];
-
-        const isThinkingConfigModel = m => /^gemini-2.5-(flash|pro)/.test(m) && !/-image-preview$/.test(m);
+        const isThinkingConfigModel = m => /^gemini-2.5-(flash|pro)/.test(m) && !/-image(-preview)?$/.test(m);
 
         const noSearchModels = [
             'gemini-2.0-flash-lite',
             'gemini-2.0-flash-lite-001',
             'gemini-2.0-flash-lite-preview-02-05',
-            'gemini-1.5-flash-8b-exp-0924',
-            'gemini-1.5-flash-8b-exp-0827',
+            'gemini-robotics-er-1.5-preview',
         ];
         // #endregion
 
@@ -413,15 +406,8 @@ async function sendMakerSuiteRequest(request, response) {
         const prompt = convertGooglePrompt(request.body.messages, model, useSystemPrompt, getPromptNames(request));
         let safetySettings = GEMINI_SAFETY;
 
-        if (blockNoneModels.includes(model)) {
-            safetySettings = GEMINI_SAFETY.map(setting => ({ ...setting, threshold: 'BLOCK_NONE' }));
-        }
-
         if (enableWebSearch && !enableImageModality && !isGemma && !isLearnLM && !noSearchModels.includes(model)) {
-            const searchTool = model.includes('1.5')
-                ? ({ google_search_retrieval: {} })
-                : ({ google_search: {} });
-            tools.push(searchTool);
+            tools.push({ google_search: {} });
         }
 
         if (Array.isArray(request.body.tools) && request.body.tools.length > 0 && !enableImageModality && !isGemma) {
@@ -1849,9 +1835,9 @@ router.post('/generate', function (request, response) {
         }
 
         const cachingAtDepth = getConfigValue('claude.cachingAtDepth', -1, 'number');
-        const isClaude3or4 = /anthropic\/claude-(3|opus-4|sonnet-4)/.test(request.body.model);
+        const isClaude3or4 = /anthropic\/claude-(3|opus-4|sonnet-4|haiku-4)/.test(request.body.model);
         const cacheTTL = getConfigValue('claude.extendedTTL', false, 'boolean') ? '1h' : '5m';
-        if (Number.isInteger(cachingAtDepth) && cachingAtDepth >= 0 && isClaude3or4) {
+        if (Array.isArray(request.body.messages) && Number.isInteger(cachingAtDepth) && cachingAtDepth >= 0 && isClaude3or4) {
             cachingAtDepthForOpenRouterClaude(request.body.messages, cachingAtDepth, cacheTTL);
         }
 
@@ -1973,6 +1959,20 @@ router.post('/generate', function (request, response) {
             reasoning_effort: request.body.reasoning_effort,
         };
         throw new Error('This provider is temporarily disabled.');
+    } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.ZAI) {
+        apiUrl = API_ZAI;
+        apiKey = readSecret(request.user.directories, SECRET_KEYS.ZAI);
+        headers = {
+            'Accept-Language': 'en-US,en',
+        };
+        bodyParams = {
+            thinking: {
+                type: request.body.include_reasoning ? 'enabled' : 'disabled',
+            },
+        };
+        if (request.body.json_schema) {
+            setJsonObjectFormat(bodyParams, request.body.messages, request.body.json_schema);
+        }
     } else {
         console.warn('This chat completion source is not supported yet.');
         return response.status(400).send({ error: true });
