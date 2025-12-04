@@ -6069,35 +6069,35 @@ export function initWorldInfo() {
     $(document).on('click', '.chat_lorebook_button', assignLorebookToChat);
 
     // Not needed on mobile
-    if (!isMobile()) {
-        $('#world_editor_select').select2({
-            placeholder: t`--- Pick to Edit ---`,
-            searchInputPlaceholder: t`Search...`,
-            allowClear: true,
-            closeOnSelect: true,
-            multiple: false,
-        });
+    // if (!isMobile()) {
+    $('#world_editor_select').select2({
+        placeholder: t`--- Pick to Edit ---`,
+        searchInputPlaceholder: t`Search...`,
+        allowClear: true,
+        closeOnSelect: true,
+        multiple: false,
+    });
 
-        $('#world_info').select2({
-            width: '100%',
-            placeholder: t`No Worlds active. Click here to select.`,
-            allowClear: true,
-            closeOnSelect: false,
-        });
+    $('#world_info').select2({
+        width: '100%',
+        placeholder: t`No Worlds active. Click here to select.`,
+        allowClear: true,
+        closeOnSelect: false,
+    });
 
-        // Subscribe world loading to the select2 multiselect items (We need to target the specific select2 control)
-        select2ChoiceClickSubscribe($('#world_info'), target => {
-            const name = $(target).text();
-            const selectedIndex = world_names.indexOf(name);
-            const alreadySelectedInEditor = $('#world_editor_select option:selected').text() === name;
-            if (selectedIndex !== -1 && !alreadySelectedInEditor) {
-                $('#world_editor_select').val(selectedIndex).trigger('change');
-                console.log('Quick selection of world', name);
-            } else {
-                console.warn('lets not reload an already loaded list yes?');
-            }
-        }, { buttonStyle: true, closeDrawer: true });
-    }
+    // Subscribe world loading to the select2 multiselect items (We need to target the specific select2 control)
+    select2ChoiceClickSubscribe($('#world_info'), target => {
+        const name = $(target).text();
+        const selectedIndex = world_names.indexOf(name);
+        const alreadySelectedInEditor = $('#world_editor_select option:selected').text() === name;
+        if (selectedIndex !== -1 && !alreadySelectedInEditor) {
+            $('#world_editor_select').val(selectedIndex).trigger('change');
+            console.log('Quick selection of world', name);
+        } else {
+            console.warn('lets not reload an already loaded list yes?');
+        }
+    }, { buttonStyle: true, closeDrawer: true });
+    // }
 
     $('#WorldInfo').on('scroll', () => {
         $('.world_entry input[name="group"], .world_entry input[name="automationId"]').each((_, el) => {
