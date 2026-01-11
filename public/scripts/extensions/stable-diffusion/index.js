@@ -57,9 +57,11 @@ import { SlashCommandEnumValue } from '../../slash-commands/SlashCommandEnumValu
 import { callGenericPopup, Popup, POPUP_TYPE } from '../../popup.js';
 import { commonEnumProviders } from '../../slash-commands/SlashCommandCommonEnumsProvider.js';
 import { ToolManager } from '../../tool-calling.js';
-import { MacrosParser } from '../../macros.js';
+import { macros, MacroCategory } from '../../macros/macro-system.js';
 import { t, translate } from '../../i18n.js';
 import { oai_settings } from '../../openai.js';
+import { power_user } from '/scripts/power-user.js';
+import { MacrosParser } from '/scripts/macros.js';
 
 export { MODULE_NAME };
 
@@ -88,6 +90,12 @@ const sources = {
     falai: 'falai',
     xai: 'xai',
     google: 'google',
+    zai: 'zai',
+    openrouter: 'openrouter',
+};
+const comfyTypes = {
+    standard: 'standard',
+    runpod_serverless: 'runpod_serverless',
 };
 
 const initiators = {
@@ -312,14 +320,19 @@ const defaultSettings = {
     // OpenAI settings
     openai_style: 'vivid',
     openai_quality: 'standard',
+    openai_quality_gpt: 'auto',
     openai_duration: '8',
 
     style: 'Default',
     styles: defaultStyles,
 
     // ComyUI settings
+    comfy_type: 'standard',
+
     comfy_url: 'http://127.0.0.1:8188',
     comfy_workflow: 'Default_Comfy_Workflow.json',
+
+    comfy_runpod_url: '',
 
     // Pollinations settings
     pollinations_enhance: false,
@@ -413,7 +426,7 @@ function processTriggers(chat, _, abort, type) {
     }
 }
 
-window['SD_ProcessTriggers'] = processTriggers;
+globalThis.SD_ProcessTriggers = processTriggers;
 
 function getSdRequestBody() {
     switch (extension_settings.sd.source) {
@@ -432,6 +445,10 @@ function toggleSourceControls() {
     $('.sd_settings [data-sd-source]').each(function () {
         const source = $(this).data('sd-source').split(',');
         $(this).toggle(source.includes(extension_settings.sd.source));
+    });
+    $('.sd_settings [data-sd-comfy-type]').each(function () {
+        const source = $(this).data('sd-comfy-type').split(',');
+        $(this).toggle(source.includes(extension_settings.sd.comfy_type));
     });
 }
 
@@ -512,9 +529,12 @@ async function loadSettings() {
     $('#sd_interactive_mode').prop('checked', extension_settings.sd.interactive_mode);
     $('#sd_openai_style').val(extension_settings.sd.openai_style);
     $('#sd_openai_quality').val(extension_settings.sd.openai_quality);
+    $('#sd_openai_quality_gpt').val(extension_settings.sd.openai_quality_gpt);
     $('#sd_openai_duration').val(extension_settings.sd.openai_duration);
+    $('#sd_comfy_type').val(extension_settings.sd.comfy_type);
     $('#sd_comfy_url').val(extension_settings.sd.comfy_url);
     $('#sd_comfy_prompt').val(extension_settings.sd.comfy_prompt);
+    $('#sd_comfy_runpod_url').val(extension_settings.sd.comfy_runpod_url);
     $('#sd_snap').prop('checked', extension_settings.sd.snap);
     $('#sd_clip_skip').val(extension_settings.sd.clip_skip);
     $('#sd_clip_skip_value').val(extension_settings.sd.clip_skip);
@@ -1012,6 +1032,11 @@ async function onSourceChange() {
     await loadSettingOptions();
 }
 
+async function onComfyTypeChange() {
+    extension_settings.sd.comfy_type = $('#sd_comfy_type').find(':selected').val();
+    await onSourceChange();
+}
+
 function onFunctionToolInput() {
     extension_settings.sd.function_tool = !!$(this).prop('checked');
     saveSettingsDebounced();
@@ -1162,8 +1187,12 @@ function onHrSecondPassStepsInput() {
 }
 
 function onComfyUrlInput() {
-    // Remove trailing slashes
     extension_settings.sd.comfy_url = String($('#sd_comfy_url').val());
+    saveSettingsDebounced();
+}
+
+function onComfyRunPodUrlInput() {
+    extension_settings.sd.comfy_runpod_url = String($('#sd_comfy_runpod_url').val());
     saveSettingsDebounced();
 }
 
@@ -1292,6 +1321,30 @@ async function validateComfyUrl() {
     }
 }
 
+async function validateComfyRunPodUrl() {
+    try {
+        if (!extension_settings.sd.comfy_runpod_url) {
+            throw new Error('URL is not set.');
+        }
+
+        const result = await fetch('/api/sd/comfyrunpod/ping', {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            body: JSON.stringify({
+                url: extension_settings.sd.comfy_runpod_url,
+            }),
+        });
+        if (!result.ok) {
+            throw new Error('ComfyUI RunPod returned an error.');
+        }
+
+        await loadSettingOptions();
+        toastr.success('ComfyUI RunPod API connected.');
+    } catch (error) {
+        toastr.error(`Could not validate ComfyUI RunPod API: ${error.message}`);
+    }
+}
+
 async function onModelChange() {
     const selectedModel = $('#sd_model').find(':selected');
     extension_settings.sd.model = selectedModel.val();
@@ -1305,25 +1358,13 @@ async function onModelChange() {
 
     switchModelSpecificControls(extension_settings.sd.model);
 
-    const cloudSources = [
-        sources.horde,
-        sources.novel,
-        sources.openai,
-        sources.aimlapi,
-        sources.togetherai,
-        sources.pollinations,
-        sources.stability,
-        sources.huggingface,
-        sources.electronhub,
-        sources.nanogpt,
-        sources.bfl,
-        sources.falai,
-        sources.xai,
-        sources.google,
-        sources.chutes,
+    const updateRemoteModelSources = [
+        sources.auto,
+        sources.vlad,
+        sources.extras,
     ];
 
-    if (cloudSources.includes(extension_settings.sd.source)) {
+    if (!updateRemoteModelSources.includes(extension_settings.sd.source)) {
         return;
     }
 
@@ -1545,10 +1586,19 @@ async function loadSamplers() {
         case sources.bfl:
             samplers = ['N/A'];
             break;
+        case sources.falai:
+            samplers = ['N/A'];
+            break;
         case sources.xai:
             samplers = ['N/A'];
             break;
         case sources.google:
+            samplers = ['N/A'];
+            break;
+        case sources.zai:
+            samplers = ['N/A'];
+            break;
+        case sources.openrouter:
             samplers = ['N/A'];
             break;
     }
@@ -1570,7 +1620,7 @@ async function loadSamplers() {
 async function loadHordeSamplers() {
     const result = await fetch('/api/horde/sd-samplers', {
         method: 'POST',
-        headers: getRequestHeaders(),
+        headers: getRequestHeaders({ omitContentType: true }),
     });
 
     if (result.ok) {
@@ -1670,6 +1720,9 @@ async function loadNovelSamplers() {
 }
 
 async function loadComfySamplers() {
+    if (extension_settings.sd.comfy_type === comfyTypes.runpod_serverless) {
+        return ['N/A'];
+    }
     if (!extension_settings.sd.comfy_url) {
         return [];
     }
@@ -1756,6 +1809,12 @@ async function loadModels() {
         case sources.google:
             models = await loadGoogleModels();
             break;
+        case sources.zai:
+            models = await loadZaiModels();
+            break;
+        case sources.openrouter:
+            models = await loadOpenRouterModels();
+            break;
     }
 
     if (extension_settings.sd.source === sources.electronhub) {
@@ -1793,7 +1852,7 @@ function switchModelSpecificControls(modelId) {
 
     modelControls.each(function () {
         const models = String($(this).attr('data-sd-model') || '').split(',').map(m => m.trim());
-        $(this).toggle(models.includes(modelId));
+        $(this).toggle(models.some(m => modelId.includes(m)));
     });
 }
 
@@ -1866,7 +1925,7 @@ async function loadFalaiModels() {
 
     const result = await fetch('/api/sd/falai/models', {
         method: 'POST',
-        headers: getRequestHeaders(),
+        headers: getRequestHeaders({ omitContentType: true }),
     });
 
     if (result.ok) {
@@ -1885,7 +1944,7 @@ async function loadXAIModels() {
 async function loadPollinationsModels() {
     const result = await fetch('/api/sd/pollinations/models', {
         method: 'POST',
-        headers: getRequestHeaders(),
+        headers: getRequestHeaders({ omitContentType: true }),
     });
 
     if (result.ok) {
@@ -1903,7 +1962,7 @@ async function loadTogetherAIModels() {
 
     const result = await fetch('/api/sd/together/models', {
         method: 'POST',
-        headers: getRequestHeaders(),
+        headers: getRequestHeaders({ omitContentType: true }),
     });
 
     if (result.ok) {
@@ -1921,7 +1980,7 @@ async function loadChutesModels() {
 
     const result = await fetch('/api/sd/chutes/models', {
         method: 'POST',
-        headers: getRequestHeaders(),
+        headers: getRequestHeaders({ omitContentType: true }),
     });
 
     if (result.ok) {
@@ -1942,7 +2001,7 @@ async function loadElectronHubModels() {
 
     const result = await fetch('/api/sd/electronhub/models', {
         method: 'POST',
-        headers: getRequestHeaders(),
+        headers: getRequestHeaders({ omitContentType: true }),
     });
 
     function getModelName(model) {
@@ -1975,7 +2034,7 @@ async function loadNanoGPTModels() {
 
     const result = await fetch('/api/sd/nanogpt/models', {
         method: 'POST',
-        headers: getRequestHeaders(),
+        headers: getRequestHeaders({ omitContentType: true }),
     });
 
     if (result.ok) {
@@ -1988,7 +2047,7 @@ async function loadNanoGPTModels() {
 async function loadHordeModels() {
     const result = await fetch('/api/horde/sd-models', {
         method: 'POST',
-        headers: getRequestHeaders(),
+        headers: getRequestHeaders({ omitContentType: true }),
     });
 
 
@@ -2109,7 +2168,10 @@ async function loadDrawthingsModels() {
 
 async function loadOpenAiModels() {
     return [
+        { value: 'gpt-image-1.5', text: 'gpt-image-1.5' },
+        { value: 'gpt-image-1-mini', text: 'gpt-image-1-mini' },
         { value: 'gpt-image-1', text: 'gpt-image-1' },
+        { value: 'chatgpt-image-latest', text: 'chatgpt-image-latest' },
         { value: 'dall-e-3', text: 'dall-e-3' },
         { value: 'dall-e-2', text: 'dall-e-2' },
         { value: 'sora-2', text: 'sora-2' },
@@ -2122,7 +2184,7 @@ async function loadAimlapiModels() {
 
     const result = await fetch('/api/sd/aimlapi/models', {
         method: 'POST',
-        headers: getRequestHeaders(),
+        headers: getRequestHeaders({ omitContentType: true }),
     });
 
     if (!result.ok) {
@@ -2234,11 +2296,34 @@ async function loadGoogleModels() {
     ].map(name => ({ value: name, text: name }));
 }
 
+async function loadZaiModels() {
+    return ['cogview-4-250304', 'cogvideox-3', 'viduq1-text'].map(name => ({ value: name, text: name }));
+}
+
+async function loadOpenRouterModels() {
+    const result = await fetch('/api/openrouter/models/image', {
+        method: 'POST',
+        headers: getRequestHeaders({ omitContentType: true }),
+    });
+
+    if (result.ok) {
+        return await result.json();
+    }
+
+    return [];
+}
+
 function loadNovelSchedulers() {
     return ['karras', 'native', 'exponential', 'polyexponential'];
 }
 
 async function loadComfyModels() {
+    if (extension_settings.sd.comfy_type === comfyTypes.runpod_serverless) {
+        $('#sd_runpod_key').toggleClass('success', !!secret_state[SECRET_KEYS.COMFY_RUNPOD]);
+        return [
+            { value: '', text: 'N/A' },
+        ];
+    }
     if (!extension_settings.sd.comfy_url) {
         return [];
     }
@@ -2325,6 +2410,12 @@ async function loadSchedulers() {
         case sources.google:
             schedulers = ['N/A'];
             break;
+        case sources.zai:
+            schedulers = ['N/A'];
+            break;
+        case sources.openrouter:
+            schedulers = ['N/A'];
+            break;
     }
 
     for (const scheduler of schedulers) {
@@ -2342,6 +2433,9 @@ async function loadSchedulers() {
 }
 
 async function loadComfySchedulers() {
+    if (extension_settings.sd.comfy_type === comfyTypes.runpod_serverless) {
+        return ['N/A'];
+    }
     if (!extension_settings.sd.comfy_url) {
         return [];
     }
@@ -2428,6 +2522,12 @@ async function loadVaes() {
         case sources.google:
             vaes = ['N/A'];
             break;
+        case sources.zai:
+            vaes = ['N/A'];
+            break;
+        case sources.openrouter:
+            vaes = ['N/A'];
+            break;
     }
 
     for (const vae of vaes) {
@@ -2469,6 +2569,9 @@ async function loadAutoVaes() {
 }
 
 async function loadComfyVaes() {
+    if (extension_settings.sd.comfy_type === comfyTypes.runpod_serverless) {
+        return ['N/A'];
+    }
     if (!extension_settings.sd.comfy_url) {
         return [];
     }
@@ -2491,10 +2594,6 @@ async function loadComfyVaes() {
 }
 
 async function loadComfyWorkflows() {
-    if (!extension_settings.sd.comfy_url) {
-        return;
-    }
-
     try {
         $('#sd_comfy_workflow').empty();
         const result = await fetch('/api/sd/comfy/workflows', {
@@ -2567,7 +2666,7 @@ function processReply(str) {
     str = str.normalize('NFD');
 
     // Strip out non-alphanumeric characters barring model syntax exceptions
-    str = str.replace(/[^a-zA-Z0-9.,:_(){}<>[\]\-'|#]+/g, ' ');
+    str = str.replace(/[^a-zA-Z0-9.,:_(){}<>[\]/\-'|#]+/g, ' ');
 
     str = str.replace(/\s+/g, ' '); // Collapse multiple whitespaces into one
     str = str.trim();
@@ -2988,7 +3087,16 @@ async function sendGenerationRequest(generationType, prompt, additionalNegativeP
                 result = await generateAimlapiImage(prefixedPrompt, signal);
                 break;
             case sources.comfy:
-                result = await generateComfyImage(prefixedPrompt, negativePrompt, signal);
+                switch (extension_settings.sd.comfy_type) {
+                    case comfyTypes.runpod_serverless:
+                        result = await generateComfyRunPodImage(prefixedPrompt, negativePrompt, signal);
+                        break;
+                    case comfyTypes.standard:
+                        result = await generateComfyImage(prefixedPrompt, negativePrompt, signal);
+                        break;
+                    default:
+                        throw new Error('Unknown comfyUI server type.');
+                }
                 break;
             case sources.togetherai:
                 result = await generateTogetherAIImage(prefixedPrompt, negativePrompt, signal);
@@ -3022,6 +3130,12 @@ async function sendGenerationRequest(generationType, prompt, additionalNegativeP
                 break;
             case sources.google:
                 result = await generateGoogleImage(prefixedPrompt, negativePrompt, signal);
+                break;
+            case sources.zai:
+                result = await generateZaiImage(prefixedPrompt, signal);
+                break;
+            case sources.openrouter:
+                result = await generateOpenRouterImage(prefixedPrompt, signal);
                 break;
         }
 
@@ -3160,7 +3274,7 @@ async function generateExtrasImage(prompt, negativePrompt, signal) {
  * Gets an aspect ratio for Stability that is the closest to the given width and height.
  * @param {number} width Target width
  * @param {number} height Target height
- * @param {'google'|'stability'} source Source of the request, used to determine aspect ratio
+ * @param {'google'|'stability'|'zai'} source Source of the request, used to determine aspect ratio
  * @returns {string} Closest aspect ratio as a string
  */
 function getClosestAspectRatio(width, height, source) {
@@ -3185,6 +3299,12 @@ function getClosestAspectRatio(width, height, source) {
                     '9:16': 9 / 16,
                     '4:3': 4 / 3,
                     '3:4': 3 / 4,
+                };
+            case 'zai':
+                return {
+                    '1:1': 1,
+                    '16:9': 16 / 9,
+                    '9:16': 9 / 16,
                 };
             default:
                 console.warn(`Unknown source "${source}" for aspect ratio calculation.`);
@@ -3214,22 +3334,41 @@ function getClosestAspectRatio(width, height, source) {
  * Get closest size for Electron Hub
  * @param {number} width - The width of the image
  * @param {number} height - The height of the image
+ * @param {string[]} sizes - Available sizes
  * @returns {Promise<string>} - The closest size
  */
-async function getClosestSize(width, height) {
-    const response = await fetch('/api/sd/electronhub/sizes', {
-        method: 'POST',
-        headers: getRequestHeaders(),
-        body: JSON.stringify({
-            model: extension_settings.sd.model,
-        }),
-    });
-    if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text);
+async function getClosestSize(width, height, sizes = []) {
+    const sizesData = [];
+
+    if (Array.isArray(sizes) && sizes.length > 0) {
+        sizesData.push(...sizes);
+    } else if (extension_settings.sd.source === sources.electronhub) {
+        const response = await fetch('/api/sd/electronhub/sizes', {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            body: JSON.stringify({
+                model: extension_settings.sd.model,
+            }),
+        });
+        if (!response.ok) {
+            const text = await response.text();
+            throw new Error(text);
+        }
+        const result = await response.json();
+        sizesData.push(...result.sizes);
+    } else {
+        return null;
     }
-    const result = await response.json();
-    const sizesData = result.sizes;
+
+    const targetWidth = Number(width);
+    const targetHeight = Number(height);
+
+    if (isNaN(targetWidth) || isNaN(targetHeight)) {
+        return null;
+    }
+
+    const targetAspect = targetWidth / targetHeight;
+    const targetResolution = targetWidth * targetHeight;
 
     const closestSize = sizesData.reduce((closest, size) => {
         if (!size || typeof size !== 'string') {
@@ -3242,16 +3381,14 @@ async function getClosestSize(width, height) {
 
         const sizeWidth = Number(sizeParts[0]);
         const sizeHeight = Number(sizeParts[1]);
-        const targetWidth = Number(width);
-        const targetHeight = Number(height);
 
-        if (isNaN(sizeWidth) || isNaN(sizeHeight) || isNaN(targetWidth) || isNaN(targetHeight)) {
+        if (isNaN(sizeWidth) || isNaN(sizeHeight)) {
             return closest;
         }
 
-        const sizeArea = sizeWidth * sizeHeight;
-        const targetArea = targetWidth * targetHeight;
-        const diff = Math.abs(sizeArea - targetArea);
+        const aspectDiff = Math.abs((sizeWidth / sizeHeight) - targetAspect) / targetAspect;
+        const resolutionDiff = Math.abs(sizeWidth * sizeHeight - targetResolution) / targetResolution;
+        const diff = aspectDiff + resolutionDiff;
 
         return diff < closest.diff ? { size, diff } : closest;
     }, { size: null, diff: Infinity });
@@ -3584,9 +3721,9 @@ async function generateOpenAiImage(prompt, signal) {
     const dalle3PromptLimit = 4000;
     const gptImgPromptLimit = 32000;
 
-    const isDalle2 = extension_settings.sd.model === 'dall-e-2';
-    const isDalle3 = extension_settings.sd.model === 'dall-e-3';
-    const isGptImg = extension_settings.sd.model === 'gpt-image-1';
+    const isDalle2 = /dall-e-2/.test(extension_settings.sd.model);
+    const isDalle3 = /dall-e-3/.test(extension_settings.sd.model);
+    const isGptImg = /gpt-image-(1|latest)/.test(extension_settings.sd.model);
     const isSora2 = /sora-2/.test(extension_settings.sd.model);
 
     if (isDalle2 && prompt.length > dalle2PromptLimit) {
@@ -3659,7 +3796,7 @@ async function generateOpenAiImage(prompt, signal) {
             model: extension_settings.sd.model,
             size: `${width}x${height}`,
             n: 1,
-            quality: isDalle3 ? extension_settings.sd.openai_quality : undefined,
+            quality: isDalle3 ? extension_settings.sd.openai_quality : (isGptImg ? extension_settings.sd.openai_quality_gpt : undefined),
             style: isDalle3 ? extension_settings.sd.openai_style : undefined,
             response_format: isDalle2 || isDalle3 ? 'b64_json' : undefined,
             moderation: isGptImg ? 'low' : undefined,
@@ -3717,25 +3854,17 @@ async function generateAimlapiImage(prompt, signal) {
 }
 
 /**
- * Generates an image in ComfyUI using the provided prompt and configuration settings.
+ * Generates an image in local ComfyUI or serverless runpod using the provided prompt and configuration settings.
  *
  * @param {string} prompt - The main instruction used to guide the image generation.
  * @param {string} negativePrompt - The instruction used to restrict the image generation.
  * @param {AbortSignal} signal - An AbortSignal object that can be used to cancel the request.
+ * @param {string} basePath - ST server endpoint for the service. '/api/sd/comfy' for local, '/api/sd/comfyrunpod' for serverless.
+ * @param {string[]} placeholders - Array of substitutions to apply to the workflow.
+ * @param {string} url - The url of the service to call. Passed to ST server.
  * @returns {Promise<{format: string, data: string}>} - A promise that resolves when the image generation and processing are complete.
  */
-async function generateComfyImage(prompt, negativePrompt, signal) {
-    const placeholders = [
-        'model',
-        'vae',
-        'sampler',
-        'scheduler',
-        'steps',
-        'scale',
-        'width',
-        'height',
-    ];
-
+async function generateComfyImageCommon(prompt, negativePrompt, signal, basePath, placeholders, url) {
     const workflowResponse = await fetch('/api/sd/comfy/workflow', {
         method: 'POST',
         headers: getRequestHeaders(),
@@ -3790,12 +3919,12 @@ async function generateComfyImage(prompt, negativePrompt, signal) {
     console.log(`{
         "prompt": ${workflow}
     }`);
-    const promptResult = await fetch('/api/sd/comfy/generate', {
+    const promptResult = await fetch(`${basePath}/generate`, {
         method: 'POST',
         headers: getRequestHeaders(),
         signal: signal,
         body: JSON.stringify({
-            url: extension_settings.sd.comfy_url,
+            url,
             prompt: `{
                 "prompt": ${workflow}
             }`,
@@ -3809,6 +3938,46 @@ async function generateComfyImage(prompt, negativePrompt, signal) {
     return { format, data };
 }
 
+/**
+ * Generates an image in ComfyUI using the provided prompt and configuration settings.
+ *
+ * @param {string} prompt - The main instruction used to guide the image generation.
+ * @param {string} negativePrompt - The instruction used to restrict the image generation.
+ * @param {AbortSignal} signal - An AbortSignal object that can be used to cancel the request.
+ * @returns {Promise<{format: string, data: string}>} - A promise that resolves when the image generation and processing are complete.
+ */
+async function generateComfyImage(prompt, negativePrompt, signal) {
+    const placeholders = [
+        'model',
+        'vae',
+        'sampler',
+        'scheduler',
+        'steps',
+        'scale',
+        'width',
+        'height',
+    ];
+    return generateComfyImageCommon(prompt, negativePrompt, signal, '/api/sd/comfy', placeholders, extension_settings.sd.comfy_url);
+}
+
+/**
+ * Generates an image using ComfyUI through serverless runpod endpoint using the provided prompt and configuration settings.
+ *
+ * @param {string} prompt - The main instruction used to guide the image generation.
+ * @param {string} negativePrompt - The instruction used to restrict the image generation.
+ * @param {AbortSignal} signal - An AbortSignal object that can be used to cancel the request.
+ * @returns {Promise<{format: string, data: string}>} - A promise that resolves when the image generation and processing are complete.
+ */
+async function generateComfyRunPodImage(prompt, negativePrompt, signal) {
+    const placeholders = [
+        'steps',
+        'scale',
+        'width',
+        'height',
+    ];
+
+    return generateComfyImageCommon(prompt, negativePrompt, signal, '/api/sd/comfyrunpod', placeholders, extension_settings.sd.comfy_runpod_url);
+}
 
 /**
  * Generates an image in Hugging Face Inference API using the provided prompt and configuration settings (model selected).
@@ -4090,6 +4259,105 @@ async function generateGoogleImage(prompt, negativePrompt, signal) {
         const text = await result.text();
         throw new Error(text);
     }
+}
+
+/**
+ * Generates an image using the Z.AI API.
+ * @param {string} prompt The main instruction used to guide the image generation.
+ * @param {AbortSignal} signal An AbortSignal object that can be used to cancel the request.
+ * @returns {Promise<{format: string, data: string}>} A promise that resolves when the image generation and processing are complete.
+ */
+async function generateZaiImage(prompt, signal) {
+    if (/(cogvideox|vidu)/.test(extension_settings.sd.model)) {
+        const videoParams = {};
+        if (/cogvideox/.test(extension_settings.sd.model)) {
+            const cogVideoSizes = ['1280x720', '720x1280', '1024x1024', '1080x1920', '2048x1080', '3840x2160'];
+            videoParams.quality = extension_settings.sd.openai_quality === 'hd' ? 'quality' : 'speed';
+            videoParams.size = await getClosestSize(extension_settings.sd.width, extension_settings.sd.height, cogVideoSizes);
+        }
+        if (/vidu/.test(extension_settings.sd.model)) {
+            videoParams.aspect_ratio = getClosestAspectRatio(extension_settings.sd.width, extension_settings.sd.height, 'zai');
+        }
+
+        const videoResult = await fetch('/api/sd/zai/generate-video', {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            signal: signal,
+            body: JSON.stringify({
+                prompt: prompt,
+                model: extension_settings.sd.model,
+                ...videoParams,
+            }),
+        });
+
+        if (videoResult.ok) {
+            const data = await videoResult.json();
+            return { format: data.format, data: data.video };
+        }
+
+        const text = await videoResult.text();
+        throw new Error(text);
+    } else {
+        // Round width and height to nearest multiple of 16, and clamp to 512-2048 range
+        let width = clamp(Math.round(extension_settings.sd.width / 16) * 16, 512, 2048);
+        let height = clamp(Math.round(extension_settings.sd.height / 16) * 16, 512, 2048);
+
+        // Make sure the pixel count does not exceed 2^21px
+        while ((width * height) > Math.pow(2, 21)) {
+            if (width >= height) {
+                width -= 16;
+            } else {
+                height -= 16;
+            }
+        }
+
+        const result = await fetch('/api/sd/zai/generate', {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            signal: signal,
+            body: JSON.stringify({
+                prompt: prompt,
+                model: extension_settings.sd.model,
+                quality: extension_settings.sd.openai_quality,
+                size: `${width}x${height}`,
+            }),
+        });
+
+        if (result.ok) {
+            const data = await result.json();
+            return { format: data.format, data: data.image };
+        }
+
+        const text = await result.text();
+        throw new Error(text);
+    }
+}
+
+/**
+ * Generates an image using the OpenRouter API.
+ * @param {string} prompt The main instruction used to guide the image generation.
+ * @param {AbortSignal} signal An AbortSignal object that can be used to cancel the request.
+ * @returns {Promise<{format: string, data: string}>}
+ */
+async function generateOpenRouterImage(prompt, signal) {
+    const result = await fetch('/api/openrouter/image/generate', {
+        method: 'POST',
+        headers: getRequestHeaders(),
+        signal: signal,
+        body: JSON.stringify({
+            model: extension_settings.sd.model,
+            prompt: prompt,
+            aspect_ratio: getClosestAspectRatio(extension_settings.sd.width, extension_settings.sd.height, 'stability'),
+        }),
+    });
+
+    if (result.ok) {
+        const data = await result.json();
+        return { format: 'jpg', data: data.image };
+    }
+
+    const text = await result.text();
+    throw new Error(text);
 }
 
 async function onComfyOpenWorkflowEditorClick() {
@@ -4375,7 +4643,15 @@ function isValidState() {
         case sources.aimlapi:
             return secret_state[SECRET_KEYS.AIMLAPI];
         case sources.comfy:
-            return true;
+            switch (extension_settings.sd.comfy_type) {
+                case comfyTypes.runpod_serverless:
+                    return !!extension_settings.sd.comfy_runpod_url &&
+                        secret_state[SECRET_KEYS.COMFY_RUNPOD];
+                case comfyTypes.standard:
+                    return !!extension_settings.sd.comfy_url;
+                default:
+                    return false;
+            }
         case sources.togetherai:
             return secret_state[SECRET_KEYS.TOGETHERAI];
         case sources.pollinations:
@@ -4398,6 +4674,12 @@ function isValidState() {
             return secret_state[SECRET_KEYS.XAI];
         case sources.google:
             return secret_state[SECRET_KEYS.MAKERSUITE] || secret_state[SECRET_KEYS.VERTEXAI] || secret_state[SECRET_KEYS.VERTEXAI_SERVICE_ACCOUNT];
+        case sources.zai:
+            return secret_state[SECRET_KEYS.ZAI];
+        case sources.openrouter:
+            return secret_state[SECRET_KEYS.OPENROUTER];
+        default:
+            return false;
     }
 }
 
@@ -5035,8 +5317,11 @@ jQuery(async () => {
     $('#sd_novel_decrisper').on('input', onNovelDecrisperInput);
     $('#sd_novel_variety_boost').on('input', onNovelVarietyBoostInput);
     $('#sd_pollinations_enhance').on('input', onPollinationsEnhanceInput);
+    $('#sd_comfy_type').on('change', onComfyTypeChange);
     $('#sd_comfy_validate').on('click', validateComfyUrl);
+    $('#sd_comfy_runpod_validate').on('click', validateComfyRunPodUrl);
     $('#sd_comfy_url').on('input', onComfyUrlInput);
+    $('#sd_comfy_runpod_url').on('input', onComfyRunPodUrlInput);
     $('#sd_comfy_workflow').on('change', onComfyWorkflowChange);
     $('#sd_comfy_open_workflow_editor').on('click', onComfyOpenWorkflowEditorClick);
     $('#sd_comfy_new_workflow').on('click', onComfyNewWorkflowClick);
@@ -5081,6 +5366,10 @@ jQuery(async () => {
         extension_settings.sd.electronhub_quality = String($(this).val());
         saveSettingsDebounced();
     });
+    $('#sd_openai_quality_gpt').on('input', function () {
+        extension_settings.sd.openai_quality_gpt = String($(this).val());
+        saveSettingsDebounced();
+    });
 
     if (!CSS.supports('field-sizing', 'content')) {
         $('.sd_settings .inline-drawer-toggle').on('click', function () {
@@ -5114,6 +5403,7 @@ jQuery(async () => {
                 case SECRET_KEYS.FALAI:
                 case SECRET_KEYS.STABILITY:
                 case SECRET_KEYS.AIMLAPI:
+                case SECRET_KEYS.COMFY_RUNPOD:
                     await loadSettingOptions();
                     break;
             }
@@ -5145,6 +5435,25 @@ jQuery(async () => {
         return isNegative ? negativePrompt : characterPrompt;
     };
 
-    MacrosParser.registerMacro('charPrefix', () => getMacroValue({ isNegative: false }), t`Character's positive positive Image Generation prompt prefix`);
-    MacrosParser.registerMacro('charNegativePrefix', () => getMacroValue({ isNegative: true }), t`Character's negative Image Generation prompt prefix`);
+    if (power_user.experimental_macro_engine) {
+        macros.register('charPrefix', {
+            category: MacroCategory.PROMPTS,
+            description: t`Character's positive Image Generation prompt prefix`,
+            handler: () => getMacroValue({ isNegative: false }),
+        });
+        macros.register('charNegativePrefix', {
+            category: MacroCategory.PROMPTS,
+            description: t`Character's negative Image Generation prompt prefix`,
+            handler: () => getMacroValue({ isNegative: true }),
+        });
+    } else {
+        MacrosParser.registerMacro('charPrefix',
+            () => getMacroValue({ isNegative: false }),
+            t`Character's positive Image Generation prompt prefix`,
+        );
+        MacrosParser.registerMacro('charNegativePrefix',
+            () => getMacroValue({ isNegative: true }),
+            t`Character's negative Image Generation prompt prefix`,
+        );
+    }
 });

@@ -23,7 +23,7 @@ import { power_user, registerDebugFunction } from './power-user.js';
 import { getActiveManualApiSamplers, loadApiSelectedSamplers, isSamplerManualPriorityEnabled } from './samplerSelect.js';
 import { SECRET_KEYS, writeSecret } from './secrets.js';
 import { getEventSourceStream } from './sse-stream.js';
-import { getCurrentDreamGenModelTokenizer, getCurrentOpenRouterModelTokenizer, loadAphroditeModels, loadDreamGenModels, loadFeatherlessModels, loadGenericModels, loadInfermaticAIModels, loadMancerModels, loadOllamaModels, loadOpenRouterModels, loadTabbyModels, loadTogetherAIModels, loadVllmModels } from './textgen-models.js';
+import { getCurrentDreamGenModelTokenizer, getCurrentOpenRouterModelTokenizer, loadAphroditeModels, loadDreamGenModels, loadFeatherlessModels, loadGenericModels, loadInfermaticAIModels, loadLlamaCppModels, loadMancerModels, loadOllamaModels, loadOpenRouterModels, loadTabbyModels, loadTogetherAIModels, loadVllmModels } from './textgen-models.js';
 import { ENCODE_TOKENIZERS, TEXTGEN_TOKENIZERS, TOKENIZER_SUPPORTED_KEY, getTextTokens, tokenizers } from './tokenizers.js';
 import { AbortReason } from './util/AbortReason.js';
 import { getSortableDelay, onlyUnique, arraysEqual, isObject } from './utils.js';
@@ -214,6 +214,7 @@ export const textgenerationwebui_settings = {
     aphrodite_model: '',
     dreamgen_model: 'lucid-v1-extra-large/text',
     tabby_model: '',
+    llamacpp_model: '',
     sampler_order: KOBOLDCPP_ORDER,
     logit_bias: [],
     n: 1,
@@ -228,6 +229,8 @@ export const textgenerationwebui_settings = {
     featherless_model: '',
     generic_model: '',
     extensions: {},
+    adaptive_target: -0.01,
+    adaptive_decay: 0.9,
 };
 
 export {
@@ -312,6 +315,8 @@ export const setting_names = [
     'generic_model',
     'extensions',
     'json_schema_allow_empty',
+    'adaptive_target',
+    'adaptive_decay',
 ];
 
 const DYNATEMP_BLOCK = document.getElementById('dynatemp_block_ooba');
@@ -701,6 +706,9 @@ async function getStatusTextgen() {
         } else if (textgenerationwebui_settings.type === textgen_types.TABBY) {
             loadTabbyModels(data?.data);
             setOnlineStatus(textgenerationwebui_settings.tabby_model || data?.result);
+        } else if (textgenerationwebui_settings.type === textgen_types.LLAMACPP) {
+            loadLlamaCppModels(data?.data);
+            setOnlineStatus(textgenerationwebui_settings.llamacpp_model || data?.result || t`Connected`);
         } else if (textgenerationwebui_settings.type === textgen_types.GENERIC) {
             loadGenericModels(data?.data);
             setOnlineStatus(textgenerationwebui_settings.generic_model || data?.result || t`Connected`);
@@ -726,12 +734,17 @@ async function getStatusTextgen() {
         const supportsChatTemplate = [textgen_types.KOBOLDCPP, textgen_types.LLAMACPP].includes(textgenerationwebui_settings.type);
 
         if (supportsChatTemplate && (wantsInstructDerivation || wantsContextDerivation || wantsContextSize)) {
+            const model = textgenerationwebui_settings.type === textgen_types.LLAMACPP
+                ? textgenerationwebui_settings.llamacpp_model
+                : undefined;
+
             const response = await fetch('/api/backends/text-completions/props', {
                 method: 'POST',
                 headers: getRequestHeaders(),
                 body: JSON.stringify({
                     api_server: endpoint,
                     api_type: textgenerationwebui_settings.type,
+                    model: model,
                 }),
             });
 
@@ -742,14 +755,16 @@ async function getStatusTextgen() {
                     power_user.chat_template_hash = chat_template_hash;
 
                     if (wantsContextSize && 'default_generation_settings' in data) {
-                        const backend_max_context = data['default_generation_settings']['n_ctx'];
-                        const old_value = max_context;
-                        if (max_context !== backend_max_context) {
-                            setGenerationParamsFromPreset({ max_length: backend_max_context });
-                        }
-                        if (old_value !== max_context) {
-                            console.log(`Auto-switched max context from ${old_value} to ${max_context}`);
-                            toastr.info(`${old_value} ⇒ ${max_context}`, 'Context Size Changed');
+                        const backend_max_context = data.default_generation_settings.n_ctx;
+                        if (backend_max_context && typeof backend_max_context === 'number') {
+                            const old_value = max_context;
+                            if (max_context !== backend_max_context) {
+                                setGenerationParamsFromPreset({ max_length: backend_max_context });
+                            }
+                            if (old_value !== max_context) {
+                                console.log(`Auto-switched max context from ${old_value} to ${max_context}`);
+                                toastr.info(`${old_value} ⇒ ${max_context}`, 'Context Size Changed');
+                            }
                         }
                     }
                     console.log(`We have chat template ${chat_template.split('\n')[0]}...`);
@@ -898,16 +913,16 @@ export function initTextGenSettings() {
             $('#ban_eos_token_textgenerationwebui').prop('checked', false); //Aphro should not ban EOS, just ignore it; 'add token '2' to ban list do to this'
             //special handling for vLLM/Aphrodite topK -1 disable state
             $('#top_k_textgenerationwebui').attr('min', -1);
-            if ($('#top_k_textgenerationwebui').val() === '0' || textgenerationwebui_settings['top_k'] === 0) {
-                textgenerationwebui_settings['top_k'] = -1;
+            if ($('#top_k_textgenerationwebui').val() === '0' || textgenerationwebui_settings.top_k === 0) {
+                textgenerationwebui_settings.top_k = -1;
                 $('#top_k_textgenerationwebui').val('-1').trigger('input');
             }
         } else {
             $('#mirostat_mode_textgenerationwebui').attr('step', 1);
             //undo special vLLM/Aphrodite setup for topK
             $('#top_k_textgenerationwebui').attr('min', 0);
-            if ($('#top_k_textgenerationwebui').val() === '-1' || textgenerationwebui_settings['top_k'] === -1) {
-                textgenerationwebui_settings['top_k'] = 0;
+            if ($('#top_k_textgenerationwebui').val() === '-1' || textgenerationwebui_settings.top_k === -1) {
+                textgenerationwebui_settings.top_k = 0;
                 $('#top_k_textgenerationwebui').val('0').trigger('input');
             }
         }
@@ -978,6 +993,8 @@ export function initTextGenSettings() {
             'xtc_probability_textgenerationwebui': 0,
             'nsigma_textgenerationwebui': 0,
             'min_keep_textgenerationwebui': 0,
+            'adaptive_target_textgenerationwebui': -0.01,
+            'adaptive_decay_textgenerationwebui': 0.9,
         };
 
         for (const [id, value] of Object.entries(inputs)) {
@@ -1284,11 +1301,15 @@ export async function generateTextGenWithStreaming(generate_data, signal) {
             if (data?.choices?.[0]?.index > 0) {
                 const swipeIndex = data.choices[0].index - 1;
                 swipes[swipeIndex] = (swipes[swipeIndex] || '') + data.choices[0].text;
+            } else if (data?.index > 0) {
+                // llama.cpp streaming swipe
+                const swipeIndex = data.index - 1;
+                swipes[swipeIndex] = (swipes[swipeIndex] || '') + data.content;
             } else {
                 const newText = data?.choices?.[0]?.text || data?.content || '';
                 text += newText;
                 logprobs = parseTextgenLogprobs(newText, data.choices?.[0]?.logprobs || data?.completion_probabilities);
-                state.reasoning += data?.choices?.[0]?.reasoning ?? '';
+                state.reasoning += data?.choices?.[0]?.reasoning ?? data?.choices?.[0]?.thinking ?? '';
             }
 
             yield { text, swipes, logprobs, toolCalls, state };
@@ -1458,6 +1479,11 @@ export function getTextGenModel(settings = null) {
                 return settings.tabby_model;
             }
             break;
+        case LLAMACPP:
+            if (settings.llamacpp_model) {
+                return settings.llamacpp_model;
+            }
+            break;
         default:
             return undefined;
     }
@@ -1610,6 +1636,8 @@ export function createTextGenGenerationData(settings, model, finalPrompt = null,
         'nsigma': settings.nsigma,
         'top_n_sigma': settings.nsigma,
         'min_keep': settings.min_keep,
+        'adaptive_target': settings.adaptive_target,
+        'adaptive_decay': settings.adaptive_decay,
         parseSequenceBreakers: function () {
             try {
                 return JSON.parse(this.dry_sequence_breakers);
@@ -1724,7 +1752,7 @@ export function createTextGenGenerationData(settings, model, finalPrompt = null,
         params.dry_sequence_breakers = params.parseSequenceBreakers();
     }
 
-    if (settings.type === TABBY) {
+    if (settings.type === TABBY || settings.type === LLAMACPP) {
         params.n = canMultiSwipe ? settings.n : 1;
     }
 

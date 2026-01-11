@@ -18,7 +18,6 @@ import {
     paginationDropdownChangeHandler,
     waitUntilCondition,
     uuidv4,
-    humanFileSize,
 } from './utils.js';
 import { RA_CountCharTokens, humanizedDateTime, dragElement, favsToHotswap, getMessageTimeStamp } from './RossAscends-mods.js';
 import { power_user, loadMovingUIState, sortEntitiesList } from './power-user.js';
@@ -39,8 +38,6 @@ import {
     setCharacterName,
     setEditedMessageId,
     is_send_press,
-    name1,
-    name2,
     resetChatState,
     setSendButtonState,
     getCharacters,
@@ -73,6 +70,7 @@ import {
     isChatSaving,
     setExternalAbortController,
     baseChatReplace,
+    createLazyFields,
     depth_prompt_depth_default,
     loadItemizedPrompts,
     animation_duration,
@@ -275,8 +273,8 @@ export async function getGroupChat(groupId, reload = false) {
     }
 
     // Add integrity slug if missing
-    if (!metadata['integrity']) {
-        metadata['integrity'] = uuidv4();
+    if (!metadata.integrity) {
+        metadata.integrity = uuidv4();
     }
 
     await loadItemizedPrompts(getCurrentChatId());
@@ -458,7 +456,7 @@ export function getGroupDepthPrompts(groupId, characterId) {
             continue;
         }
 
-        const depthPromptText = baseChatReplace(character.data?.extensions?.depth_prompt?.prompt?.trim(), name1, character.name) || '';
+        const depthPromptText = baseChatReplace(character.data?.extensions?.depth_prompt?.prompt?.trim(), null, character.name) || '';
         const depthPromptDepth = character.data?.extensions?.depth_prompt?.depth ?? depth_prompt_depth_default;
         const depthPromptRole = character.data?.extensions?.depth_prompt?.role ?? depth_prompt_role_default;
 
@@ -477,29 +475,46 @@ export function getGroupDepthPrompts(groupId, characterId) {
  * @returns {{description: string, personality: string, scenario: string, mesExamples: string}} Group character cards combined
  */
 export function getGroupCharacterCards(groupId, characterId) {
+    const lazy = getGroupCharacterCardsLazy(groupId, characterId);
+    if (!lazy) return null;
+
+    // Resolve all lazy fields into a plain object
+    return {
+        description: lazy.description,
+        personality: lazy.personality,
+        scenario: lazy.scenario,
+        mesExamples: lazy.mesExamples,
+    };
+}
+
+/**
+ * Returns group character cards with lazy evaluation.
+ * Each field is only processed when first accessed.
+ * @param {string} groupId Group ID
+ * @param {number} characterId Current Character ID
+ * @returns {{description: string, personality: string, scenario: string, mesExamples: string}} Group character cards with lazy getters
+ */
+export function getGroupCharacterCardsLazy(groupId, characterId) {
     const group = groups.find(x => x.id === groupId);
 
+    // If no group cards should be generated, return null so caller knows to fall back
     if (!group || !group?.generation_mode || !Array.isArray(group.members) || !group.members.length) {
         return null;
     }
 
     /**
-     * Runs the macro engine on a text, with custom <FIELDNAME> replace
+     * Runs baseChatReplace on a text, with custom <FIELDNAME> replace
      * @param {string} value Value to replace
      * @param {string} fieldName Name of the field
      * @param {string} characterName Name of the character
      * @param {boolean} trim Whether to trim the value
      * @returns {string} Replaced text
-     * */
-    function customBaseChatReplace(value, fieldName, characterName, trim) {
-        if (!value) {
-            return '';
-        }
-
-        // We should do the custom field name replacement first, and then run it through the normal macro engine with provided names
+     */
+    function customTransform(value, fieldName, characterName, trim) {
+        if (!value) return '';
         value = value.replace(/<FIELDNAME>/gi, fieldName);
         value = trim ? value.trim() : value;
-        return baseChatReplace(value, name1, characterName);
+        return baseChatReplace(value, null, characterName);
     }
 
     /**
@@ -509,60 +524,50 @@ export function getGroupCharacterCards(groupId, characterId) {
      * @param {string} fieldName Name of the field
      * @param {function(string): string} [preprocess] Preprocess function
      * @returns {string} Prepared text
-     * */
+     */
     function replaceAndPrepareForJoin(value, characterName, fieldName, preprocess = null) {
-        value = value.trim();
-        if (!value) {
-            return '';
-        }
-
-        // Run preprocess function
+        value = value?.trim() ?? '';
+        if (!value) return '';
         if (typeof preprocess === 'function') {
             value = preprocess(value);
         }
-
-        // Prepare and replace prefixes
-        const prefix = customBaseChatReplace(group.generation_mode_join_prefix, fieldName, characterName, false);
-        const suffix = customBaseChatReplace(group.generation_mode_join_suffix, fieldName, characterName, false);
-        // Also run the macro replacement on the actual content
-        value = customBaseChatReplace(value, fieldName, characterName, true);
-
+        const prefix = customTransform(group.generation_mode_join_prefix, fieldName, characterName, false);
+        const suffix = customTransform(group.generation_mode_join_suffix, fieldName, characterName, false);
+        value = customTransform(value, fieldName, characterName, true);
         return `${prefix}${value}${suffix}`;
     }
 
-    const scenarioOverride = String(chat_metadata['scenario'] || '');
-    const mesExamplesOverride = String(chat_metadata['mes_example'] || '');
-
-    let descriptions = [];
-    let personalities = [];
-    let scenarios = [];
-    let mesExamplesArray = [];
-
-    for (const member of group.members) {
-        const index = characters.findIndex(x => x.avatar === member);
-        const character = characters[index];
-
-        if (index === -1 || !character) {
-            console.debug(`Skipping missing member: ${member}`);
-            continue;
+    /**
+     * Collects and joins field values from all group members
+     * @param {string} fieldName Display name of the field
+     * @param {function(Character): string} getter Function to get field value from character
+     * @param {function(string): string} [preprocess] Optional preprocess function
+     * @returns {string} Combined field values
+     */
+    function collectField(fieldName, getter, preprocess = null) {
+        const values = [];
+        for (const member of group.members) {
+            const index = characters.findIndex(x => x.avatar === member);
+            const character = characters[index];
+            if (index === -1 || !character) continue;
+            if (group.disabled_members.includes(member) && characterId !== index && group.generation_mode !== group_generation_mode.APPEND_DISABLED) {
+                continue;
+            }
+            values.push(replaceAndPrepareForJoin(getter(character), character.name, fieldName, preprocess));
         }
-
-        if (group.disabled_members.includes(member) && characterId !== index && group.generation_mode !== group_generation_mode.APPEND_DISABLED) {
-            continue;
-        }
-
-        descriptions.push(replaceAndPrepareForJoin(character.description, character.name, 'Description'));
-        personalities.push(replaceAndPrepareForJoin(character.personality, character.name, 'Personality'));
-        scenarios.push(replaceAndPrepareForJoin(character.scenario, character.name, 'Scenario'));
-        mesExamplesArray.push(replaceAndPrepareForJoin(character.mes_example, character.name, 'Example Messages', (x) => !x.startsWith('<START>') ? `<START>\n${x}` : x));
+        return values.filter(x => x.length).join('\n');
     }
 
-    const description = descriptions.filter(x => x.length).join('\n');
-    const personality = personalities.filter(x => x.length).join('\n');
-    const scenario = baseChatReplace(scenarioOverride?.trim(), name1, name2) || scenarios.filter(x => x.length).join('\n');
-    const mesExamples = baseChatReplace(mesExamplesOverride?.trim(), name1, name2) || mesExamplesArray.filter(x => x.length).join('\n');
+    const scenarioOverride = String(chat_metadata.scenario || '');
+    const mesExamplesOverride = String(chat_metadata.mes_example || '');
 
-    return { description, personality, scenario, mesExamples };
+    return createLazyFields({
+        description: () => collectField('Description', c => c.description),
+        personality: () => collectField('Personality', c => c.personality),
+        scenario: () => baseChatReplace(scenarioOverride?.trim()) || collectField('Scenario', c => c.scenario),
+        mesExamples: () => baseChatReplace(mesExamplesOverride?.trim()) ||
+            collectField('Example Messages', c => c.mes_example, x => !x.startsWith('<START>') ? `<START>\n${x}` : x),
+    });
 }
 
 /**
@@ -587,16 +592,16 @@ async function getFirstCharacterMessage(character) {
     }
 
     const mes = {};
-    mes['is_user'] = false;
-    mes['is_system'] = false;
-    mes['name'] = character.name;
-    mes['send_date'] = getMessageTimeStamp();
-    mes['original_avatar'] = character.avatar;
-    mes['extra'] = { 'gen_id': Date.now() * Math.random() * 1000000 };
-    mes['mes'] = messageText
-        ? substituteParams(messageText.trim(), name1, character.name)
+    mes.is_user = false;
+    mes.is_system = false;
+    mes.name = character.name;
+    mes.send_date = getMessageTimeStamp();
+    mes.original_avatar = character.avatar;
+    mes.extra = { 'gen_id': Date.now() * Math.random() * 1000000 };
+    mes.mes = messageText
+        ? substituteParams(messageText.trim(), { name2Override: character.name })
         : '';
-    mes['force_avatar'] =
+    mes.force_avatar =
         character.avatar != 'none'
             ? getThumbnailUrl('avatar', character.avatar)
             : default_avatar;
@@ -622,7 +627,7 @@ async function saveGroupChat(groupId, shouldSaveGroup, force = false) {
         return;
     }
     const chatId = group.chat_id;
-    group['date_last_chat'] = Date.now();
+    group.date_last_chat = Date.now();
     /** @type {ChatHeader} */
     const chatHeader = {
         chat_metadata: { ...chat_metadata },
@@ -752,7 +757,7 @@ export async function renameGroupMember(oldAvatar, newAvatar, newName) {
 async function getGroups() {
     const response = await fetch('/api/groups/all', {
         method: 'POST',
-        headers: getRequestHeaders(),
+        headers: getRequestHeaders({ omitContentType: true }),
     });
 
     if (response.ok) {
@@ -2118,7 +2123,7 @@ export async function createNewGroupChat(groupId) {
 /**
  * Retrieves past chats for a specified group.
  * @param {string} groupId Group ID
- * @returns {Promise<Array>} Array of past chats
+ * @returns {Promise<Array<import('../../src/endpoints/chats.js').ChatInfo>>} Array of past chats
  */
 export async function getGroupPastChats(groupId) {
     const group = groups.find(x => x.id === groupId);
@@ -2131,24 +2136,15 @@ export async function getGroupPastChats(groupId) {
 
     try {
         for (const chatId of group.chats) {
-            const messages = await loadGroupChat(chatId);
-            if (!Array.isArray(messages)) {
-                continue;
-            }
-            const fileSize = humanFileSize(JSON.stringify(messages).length);
-            if (messages.length > 0 && Object.hasOwn(messages[0], 'chat_metadata')) {
-                messages.shift();
-            }
-            const chatItems = messages.length;
-            const lastMessage = messages.length ? messages[messages.length - 1].mes : '[The chat is empty]';
-            const lastMessageDate = messages.length ? (messages[messages.length - 1].send_date || Date.now()) : Date.now();
-            chats.push({
-                'file_name': chatId,
-                'mes': lastMessage,
-                'last_mes': lastMessageDate,
-                'file_size': fileSize,
-                'chat_items': chatItems,
+            const response = await fetch('/api/chats/group/info', {
+                method: 'POST',
+                headers: getRequestHeaders(),
+                body: JSON.stringify({ id: chatId }),
             });
+            if (response.ok) {
+                const data = await response.json();
+                chats.push(data);
+            }
         }
     } catch (err) {
         console.error(err);
@@ -2173,7 +2169,7 @@ export async function openGroupChat(groupId, chatId) {
     await clearChat();
     chat.length = 0;
     group.chat_id = chatId;
-    group['date_last_chat'] = Date.now();
+    group.date_last_chat = Date.now();
     updateChatMetadata({}, true);
 
     await editGroup(groupId, true, false);
@@ -2308,6 +2304,8 @@ export async function importGroupChat(formData, { refresh = true } = {}) {
                     await displayPastChats();
                 }
             }
+
+            return [data.res];
         }
 
         return data?.fileNames || [];

@@ -970,10 +970,10 @@ export function initRossMods() {
 
     function isModifiedKeyboardEvent(event) {
         return (event instanceof KeyboardEvent &&
-            event.shiftKey ||
+            (event.shiftKey ||
             event.ctrlKey ||
             event.altKey ||
-            event.metaKey);
+            event.metaKey));
     }
 
     $(document).on('keydown', async function (event) {
@@ -996,7 +996,7 @@ export function initRossMods() {
         }
 
         //Enter to send when send_textarea in focus
-        if (document.activeElement == hotkeyTargets['send_textarea']) {
+        if (document.activeElement == hotkeyTargets.send_textarea) {
             const sendOnEnter = shouldSendOnEnter();
             if (!event.isComposing && !event.shiftKey && !event.ctrlKey && !event.altKey && event.key == 'Enter' && sendOnEnter) {
                 event.preventDefault();
@@ -1004,7 +1004,7 @@ export function initRossMods() {
                 return;
             }
         }
-        if (document.activeElement == hotkeyTargets['dialogue_popup_input'] && !isMobile()) {
+        if (document.activeElement == hotkeyTargets.dialogue_popup_input && !isMobile()) {
             if (!event.shiftKey && !event.ctrlKey && event.key == 'Enter') {
                 event.preventDefault();
                 $('#dialogue_popup_ok').trigger('click');
@@ -1113,7 +1113,8 @@ export function initRossMods() {
                 $('#character_popup').css('display') === 'none' &&
                 $('#shadow_select_chat_popup').css('display') === 'none' &&
                 !isInputElementInFocus() &&
-                !isModifiedKeyboardEvent(event)
+                !isModifiedKeyboardEvent(event) &&
+                !(document.activeElement instanceof HTMLVideoElement)
             ) {
                 $('.swipe_left:last').trigger('click', { source: SWIPE_SOURCE.KEYBOARD, repeated: event.repeat });
                 return;
@@ -1127,7 +1128,8 @@ export function initRossMods() {
                 $('#character_popup').css('display') === 'none' &&
                 $('#shadow_select_chat_popup').css('display') === 'none' &&
                 !isInputElementInFocus() &&
-                !isModifiedKeyboardEvent(event)
+                !isModifiedKeyboardEvent(event) &&
+                !(document.activeElement instanceof HTMLVideoElement)
             ) {
                 $('.swipe_right:last').trigger('click', { source: SWIPE_SOURCE.KEYBOARD, repeated: event.repeat });
                 return;
@@ -1137,7 +1139,7 @@ export function initRossMods() {
 
         if (event.ctrlKey && event.key == 'ArrowUp') { //edits last USER message if chatbar is empty and focused
             if (
-                hotkeyTargets['send_textarea'].value === '' &&
+                hotkeyTargets.send_textarea.value === '' &&
                 chatbarInFocus === true &&
                 ($('.swipe_right:last').css('display') === 'flex' || $('.last_mes').attr('is_system') === 'true') &&
                 $('#character_popup').css('display') === 'none' &&
@@ -1156,7 +1158,7 @@ export function initRossMods() {
         if (event.key == 'ArrowUp') { //edits last message if chatbar is empty and focused
             console.log('got uparrow input');
             if (
-                hotkeyTargets['send_textarea'].value === '' &&
+                hotkeyTargets.send_textarea.value === '' &&
                 chatbarInFocus === true &&
                 //$('.swipe_right:last').css('display') === 'flex' &&
                 $('.last_mes .mes_buttons').is(':visible') &&

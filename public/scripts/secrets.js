@@ -57,6 +57,7 @@ export const SECRET_KEYS = {
     NANOGPT: 'api_key_nanogpt',
     TAVILY: 'api_key_tavily',
     BFL: 'api_key_bfl',
+    COMFY_RUNPOD: 'api_key_comfy_runpod',
     GENERIC: 'api_key_generic',
     DEEPSEEK: 'api_key_deepseek',
     SERPER: 'api_key_serper',
@@ -71,6 +72,7 @@ export const SECRET_KEYS = {
     COMETAPI: 'api_key_cometapi',
     ZAI: 'api_key_zai',
     SILICONFLOW: 'api_key_siliconflow',
+    ELEVENLABS: 'api_key_elevenlabs',
 };
 
 const FRIENDLY_NAMES = {
@@ -111,6 +113,7 @@ const FRIENDLY_NAMES = {
     [SECRET_KEYS.CUSTOM_OPENAI_TTS]: 'Custom OpenAI TTS',
     [SECRET_KEYS.TAVILY]: 'Tavily',
     [SECRET_KEYS.BFL]: 'Black Forest Labs',
+    [SECRET_KEYS.COMFY_RUNPOD]: 'ComfyUI RunPod',
     [SECRET_KEYS.SERPAPI]: 'SerpApi',
     [SECRET_KEYS.SERPER]: 'Serper',
     [SECRET_KEYS.FALAI]: 'FAL.AI',
@@ -130,6 +133,7 @@ const FRIENDLY_NAMES = {
     [SECRET_KEYS.AZURE_OPENAI]: 'Azure OpenAI',
     [SECRET_KEYS.ZAI]: 'Z.AI',
     [SECRET_KEYS.SILICONFLOW]: 'SiliconFlow',
+    [SECRET_KEYS.ELEVENLABS]: 'ElevenLabs TTS',
 };
 
 const INPUT_MAP = {
@@ -172,6 +176,7 @@ const INPUT_MAP = {
     [SECRET_KEYS.AZURE_OPENAI]: '#api_key_azure_openai',
     [SECRET_KEYS.ZAI]: '#api_key_zai',
     [SECRET_KEYS.SILICONFLOW]: '#api_key_siliconflow',
+    [SECRET_KEYS.COMFY_RUNPOD]: '#api_key_comfy_runpod',
 };
 
 const getLabel = () => moment().format('L LT');
@@ -268,7 +273,7 @@ function getActiveSecretLabel(key) {
 async function viewSecrets() {
     const response = await fetch('/api/secrets/view', {
         method: 'POST',
-        headers: getRequestHeaders(),
+        headers: getRequestHeaders({ omitContentType: true }),
     });
 
     if (response.status == 403) {
@@ -372,7 +377,7 @@ export async function readSecretState() {
     try {
         const response = await fetch('/api/secrets/read', {
             method: 'POST',
-            headers: getRequestHeaders(),
+            headers: getRequestHeaders({ omitContentType: true }),
         });
 
         if (response.ok) {
@@ -570,11 +575,11 @@ async function openKeyManagerDialog(key) {
     template.find('button[data-action="add-secret"]').on('click', async function () {
         let label = '';
         let result = POPUP_RESULT.CANCELLED;
-        const value = await Popup.show.input(t`Add Secret`, t`Enter the secret value (can be empty):`, '', {
+        const value = await Popup.show.input(t`Add Secret`, t`Secret value (can be empty):`, '', {
             customInputs: [{
                 id: 'newSecretLabel',
                 type: 'text',
-                label: t`Enter a label for the secret (optional):`,
+                label: t`Label (optional):`,
             }],
             onClose: popup => {
                 if (popup.result) {

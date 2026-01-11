@@ -746,7 +746,7 @@ function overlapChunks(chunk, index, chunks, overlapSize) {
     return overlappedChunk;
 }
 
-window['vectors_rearrangeChat'] = rearrangeChat;
+globalThis.vectors_rearrangeChat = rearrangeChat;
 
 const onChatEvent = debounce(async () => await moduleWorker.update(), debounce_timeout.relaxed);
 
@@ -1163,7 +1163,7 @@ async function loadChutesModels() {
     try {
         const response = await fetch('/api/openai/chutes/models/embedding', {
             method: 'POST',
-            headers: getRequestHeaders(),
+            headers: getRequestHeaders({ omitContentType: true }),
         });
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
@@ -1197,7 +1197,7 @@ async function loadElectronHubModels() {
     try {
         const response = await fetch('/api/openai/electronhub/models', {
             method: 'POST',
-            headers: getRequestHeaders(),
+            headers: getRequestHeaders({ omitContentType: true }),
         });
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
@@ -1236,7 +1236,7 @@ async function loadOpenRouterModels() {
     try {
         const response = await fetch('/api/openrouter/models/embedding', {
             method: 'POST',
-            headers: getRequestHeaders(),
+            headers: getRequestHeaders({ omitContentType: true }),
         });
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
@@ -1620,7 +1620,7 @@ jQuery(async () => {
     }
 
     // Migrate from old settings
-    if (settings['enabled']) {
+    if (settings.enabled) {
         settings.enabled_chats = true;
     }
 
