@@ -2391,7 +2391,8 @@ router.post('/generate', async function (request, response) {
 
         if (fetchResponse.ok) {
             /** @type {any} */
-            const json = await fetchResponse.json();
+            // const json = await fetchResponse.json();
+            const json = await fixResponse(fetchResponse);
             console.debug('Chat Completion response:', json);
             return response.send(json);
         } else {
@@ -2423,6 +2424,48 @@ router.post('/generate', async function (request, response) {
         }
     }
 });
+
+
+/**
+ * @param {import("node-fetch").Response} response
+ */
+async function fixResponse(response) {
+    let isStream = response.headers.get('Content-Type')?.includes('text/event-stream') ||
+        response.headers.get('Transfer-Encoding') === 'chunked';
+    if (isStream) {
+        return new Promise((resolve, reject) => {
+            let result = '';
+            let buff = '';
+            const decoder = new TextDecoder();
+            response.body.on('data', (chunk) => {
+                buff += decoder.decode(chunk, { stream: true });
+
+                // 分割事件流
+                const lines = buff.split(/\r?\n/);
+                buff = lines.pop();
+                for (const line of lines) {
+                    if (line.startsWith('data:')) {
+                        const eventData = line.replace(/^data:\s*/, '');
+                        if (eventData.trim() === '[DONE]') {
+                            continue;
+                        }
+                        const json = JSON.parse(eventData);
+                        result += json?.choices?.[0]?.delta?.content;
+                    }
+                }
+            });
+            response.body.on('end', () => {
+                console.log('convert stream response:\n',result);
+                resolve({ text: result });
+            });
+            response.body.on('error', (err) => {
+                reject(err);
+            });
+        });
+    } else {
+        return response.json();
+    }
+}
 
 const multimodalModels = express.Router();
 
